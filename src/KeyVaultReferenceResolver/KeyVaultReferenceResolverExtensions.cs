@@ -14,11 +14,20 @@ namespace KeyVaultReferenceResolver
     public static class KeyVaultReferenceResolverExtensions
     {
         /// <summary>
-        /// Pattern to match Key Vault references in configuration values.
+        /// Pattern to match Key Vault references using SecretUri format.
         /// Supports format: @Microsoft.KeyVault(SecretUri=https://vault.vault.azure.net/secrets/secret-name)
         /// </summary>
-        private static readonly Regex KeyVaultReferencePattern = new Regex(
+        private static readonly Regex SecretUriPattern = new Regex(
             @"@Microsoft\.KeyVault\(SecretUri=(?<uri>https://[^)]+)\)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
+        /// Pattern to match Key Vault references using VaultName format.
+        /// Supports format: @Microsoft.KeyVault(VaultName=myvault;SecretName=mysecret) or
+        /// @Microsoft.KeyVault(VaultName=myvault;SecretName=mysecret;SecretVersion=version123)
+        /// </summary>
+        private static readonly Regex VaultNamePattern = new Regex(
+            @"@Microsoft\.KeyVault\(VaultName=(?<vault>[^;)]+);SecretName=(?<secret>[^;)]+)(?:;SecretVersion=(?<version>[^)]+))?\)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         /// <summary>
@@ -113,11 +122,9 @@ namespace KeyVaultReferenceResolver
                 if (string.IsNullOrEmpty(kvp.Value))
                     continue;
 
-                var match = KeyVaultReferencePattern.Match(kvp.Value);
-                if (!match.Success)
+                var secretUri = TryExtractSecretUri(kvp.Value);
+                if (secretUri == null)
                     continue;
-
-                var secretUri = match.Groups["uri"].Value;
 
                 try
                 {
@@ -151,26 +158,63 @@ namespace KeyVaultReferenceResolver
 
         /// <summary>
         /// Checks if a configuration value contains a Key Vault reference.
+        /// Supports both SecretUri and VaultName formats.
         /// </summary>
         /// <param name="value">The configuration value to check.</param>
         /// <returns>True if the value contains a Key Vault reference.</returns>
         public static bool IsKeyVaultReference(string? value)
         {
-            return !string.IsNullOrEmpty(value) && KeyVaultReferencePattern.IsMatch(value);
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            return SecretUriPattern.IsMatch(value) || VaultNamePattern.IsMatch(value);
         }
 
         /// <summary>
         /// Extracts the secret URI from a Key Vault reference string.
+        /// Supports both SecretUri and VaultName formats.
+        /// For VaultName format, constructs the full URI.
         /// </summary>
         /// <param name="value">The configuration value containing the Key Vault reference.</param>
         /// <returns>The secret URI, or null if no valid reference is found.</returns>
         public static string? ExtractSecretUri(string? value)
         {
+            return TryExtractSecretUri(value);
+        }
+
+        /// <summary>
+        /// Tries to extract a secret URI from either format.
+        /// </summary>
+        private static string? TryExtractSecretUri(string? value)
+        {
             if (string.IsNullOrEmpty(value))
                 return null;
 
-            var match = KeyVaultReferencePattern.Match(value);
-            return match.Success ? match.Groups["uri"].Value : null;
+            // Try SecretUri format first
+            var secretUriMatch = SecretUriPattern.Match(value);
+            if (secretUriMatch.Success)
+            {
+                return secretUriMatch.Groups["uri"].Value;
+            }
+
+            // Try VaultName format
+            var vaultNameMatch = VaultNamePattern.Match(value);
+            if (vaultNameMatch.Success)
+            {
+                var vaultName = vaultNameMatch.Groups["vault"].Value;
+                var secretName = vaultNameMatch.Groups["secret"].Value;
+                var version = vaultNameMatch.Groups["version"].Value;
+
+                // Construct the full URI
+                var uri = $"https://{vaultName}.vault.azure.net/secrets/{secretName}";
+                if (!string.IsNullOrEmpty(version))
+                {
+                    uri += $"/{version}";
+                }
+                return uri;
+            }
+
+            return null;
         }
     }
 }

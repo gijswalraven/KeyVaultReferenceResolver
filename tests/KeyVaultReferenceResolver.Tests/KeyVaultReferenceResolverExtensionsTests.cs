@@ -17,6 +17,10 @@ public class KeyVaultReferenceResolverExtensionsTests
     private const string TestSecretValue = "super-secret-value";
     private const string ValidKeyVaultReference = "@Microsoft.KeyVault(SecretUri=https://myvault.vault.azure.net/secrets/my-secret)";
 
+    // VaultName format constants
+    private const string ValidVaultNameReference = "@Microsoft.KeyVault(VaultName=myvault;SecretName=my-secret)";
+    private const string ValidVaultNameReferenceWithVersion = "@Microsoft.KeyVault(VaultName=myvault;SecretName=my-secret;SecretVersion=abc123)";
+
     #region IsKeyVaultReference Tests
 
     [Fact]
@@ -82,7 +86,53 @@ public class KeyVaultReferenceResolverExtensionsTests
     [InlineData("@Microsoft.KeyVault(SecretUri=https://vault.vault.azure.net/secrets/test)")]
     [InlineData("@microsoft.keyvault(secreturi=https://vault.vault.azure.net/secrets/test)")]
     [InlineData("@Microsoft.KeyVault(SecretUri=https://my-vault.vault.azure.net/secrets/my-secret/version123)")]
-    public void IsKeyVaultReference_VariousValidFormats_ReturnsTrue(string value)
+    public void IsKeyVaultReference_VariousValidSecretUriFormats_ReturnsTrue(string value)
+    {
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsKeyVaultReference_VaultNameFormat_ReturnsTrue()
+    {
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(ValidVaultNameReference);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsKeyVaultReference_VaultNameFormatWithVersion_ReturnsTrue()
+    {
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(ValidVaultNameReferenceWithVersion);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsKeyVaultReference_VaultNameFormat_CaseInsensitive_ReturnsTrue()
+    {
+        // Arrange
+        var value = "@MICROSOFT.KEYVAULT(VaultName=myvault;SecretName=mysecret)";
+
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("@Microsoft.KeyVault(VaultName=my-vault;SecretName=my-secret)")]
+    [InlineData("@Microsoft.KeyVault(VaultName=vault123;SecretName=secret-name;SecretVersion=v1)")]
+    [InlineData("@microsoft.keyvault(vaultname=test;secretname=test)")]
+    public void IsKeyVaultReference_VariousValidVaultNameFormats_ReturnsTrue(string value)
     {
         // Act
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
@@ -152,6 +202,38 @@ public class KeyVaultReferenceResolverExtensionsTests
 
         // Assert
         result.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractSecretUri_VaultNameFormat_ConstructsUri()
+    {
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(ValidVaultNameReference);
+
+        // Assert
+        result.Should().Be(TestSecretUri);
+    }
+
+    [Fact]
+    public void ExtractSecretUri_VaultNameFormatWithVersion_ConstructsUriWithVersion()
+    {
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(ValidVaultNameReferenceWithVersion);
+
+        // Assert
+        result.Should().Be(TestSecretUriWithVersion);
+    }
+
+    [Theory]
+    [InlineData("@Microsoft.KeyVault(VaultName=testvault;SecretName=testsecret)", "https://testvault.vault.azure.net/secrets/testsecret")]
+    [InlineData("@Microsoft.KeyVault(VaultName=my-vault;SecretName=my-secret;SecretVersion=v123)", "https://my-vault.vault.azure.net/secrets/my-secret/v123")]
+    public void ExtractSecretUri_VaultNameFormat_ConstructsCorrectUri(string input, string expectedUri)
+    {
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(input);
+
+        // Assert
+        result.Should().Be(expectedUri);
     }
 
     #endregion
@@ -472,6 +554,104 @@ public class KeyVaultReferenceResolverExtensionsTests
         // The actual logging is internal, we just verify the operation completes
         var config = builder.Build();
         config["Secret"].Should().Be(TestSecretValue);
+    }
+
+    #endregion
+
+    #region VaultName Format Resolution Tests
+
+    [Fact]
+    public void AddKeyVaultReferenceResolver_VaultNameFormat_ResolvesSecrets()
+    {
+        // Arrange
+        var mockResolver = new MockSecretResolver()
+            .AddSecret(TestSecretUri, TestSecretValue);
+
+        var builder = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionString"] = ValidVaultNameReference
+            });
+
+        // Act
+        builder.AddKeyVaultReferenceResolver(mockResolver);
+        var config = builder.Build();
+
+        // Assert
+        config["ConnectionString"].Should().Be(TestSecretValue);
+    }
+
+    [Fact]
+    public void AddKeyVaultReferenceResolver_VaultNameFormatWithVersion_ResolvesSecrets()
+    {
+        // Arrange
+        var mockResolver = new MockSecretResolver()
+            .AddSecret(TestSecretUriWithVersion, TestSecretValue);
+
+        var builder = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionString"] = ValidVaultNameReferenceWithVersion
+            });
+
+        // Act
+        builder.AddKeyVaultReferenceResolver(mockResolver);
+        var config = builder.Build();
+
+        // Assert
+        config["ConnectionString"].Should().Be(TestSecretValue);
+    }
+
+    [Fact]
+    public void AddKeyVaultReferenceResolver_MixedFormats_ResolvesAll()
+    {
+        // Arrange
+        var secretUri1 = "https://vault1.vault.azure.net/secrets/secret1";
+        var secretUri2 = "https://vault2.vault.azure.net/secrets/secret2";
+        var secretValue1 = "value1";
+        var secretValue2 = "value2";
+
+        var mockResolver = new MockSecretResolver()
+            .AddSecret(secretUri1, secretValue1)
+            .AddSecret(secretUri2, secretValue2);
+
+        var builder = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                // SecretUri format
+                ["Secret1"] = $"@Microsoft.KeyVault(SecretUri={secretUri1})",
+                // VaultName format
+                ["Secret2"] = "@Microsoft.KeyVault(VaultName=vault2;SecretName=secret2)"
+            });
+
+        // Act
+        builder.AddKeyVaultReferenceResolver(mockResolver);
+        var config = builder.Build();
+
+        // Assert
+        config["Secret1"].Should().Be(secretValue1);
+        config["Secret2"].Should().Be(secretValue2);
+    }
+
+    [Fact]
+    public void AddKeyVaultReferenceResolver_VaultNameFormat_ResolveFailure_ThrowOnFailureTrue_Throws()
+    {
+        // Arrange
+        var mockResolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
+        var options = new KeyVaultReferenceResolverOptions { ThrowOnResolveFailure = true };
+
+        var builder = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["MissingSecret"] = ValidVaultNameReference
+            });
+
+        // Act
+        Action act = () => builder.AddKeyVaultReferenceResolver(mockResolver, options);
+
+        // Assert
+        act.Should().Throw<KeyVaultReferenceResolutionException>()
+            .Which.ConfigurationKey.Should().Be("MissingSecret");
     }
 
     #endregion
