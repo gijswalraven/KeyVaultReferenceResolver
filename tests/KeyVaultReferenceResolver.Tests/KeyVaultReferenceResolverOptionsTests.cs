@@ -18,13 +18,13 @@ public class KeyVaultReferenceResolverOptionsTests
     }
 
     [Fact]
-    public void DefaultValues_ThrowOnResolveFailure_IsFalse()
+    public void DefaultValues_ThrowOnResolveFailure_IsTrue()
     {
         // Arrange & Act
         var options = new KeyVaultReferenceResolverOptions();
 
         // Assert
-        options.ThrowOnResolveFailure.Should().BeFalse();
+        options.ThrowOnResolveFailure.Should().BeTrue();
     }
 
     [Fact]
@@ -57,13 +57,13 @@ public class KeyVaultReferenceResolverOptionsTests
 
         // Act
         options.Credential = credential;
-        options.ThrowOnResolveFailure = true;
+        options.ThrowOnResolveFailure = false;
         options.Timeout = timeout;
         options.EnableCaching = false;
 
         // Assert
         options.Credential.Should().BeSameAs(credential);
-        options.ThrowOnResolveFailure.Should().BeTrue();
+        options.ThrowOnResolveFailure.Should().BeFalse();
         options.Timeout.Should().Be(timeout);
         options.EnableCaching.Should().BeFalse();
     }

@@ -72,8 +72,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddKeyVaultReferenceResolver(options =>
 {
-    // Fail fast in production, be lenient in development
-    options.ThrowOnResolveFailure = builder.Environment.IsProduction();
+    // Default is fail-fast (true); be lenient in development if needed
+    options.ThrowOnResolveFailure = !builder.Environment.IsDevelopment();
 });
 
 var app = builder.Build();
@@ -148,8 +148,8 @@ builder.AddKeyVaultReferenceResolver(
 ```csharp
 builder.AddKeyVaultReferenceResolver(options =>
 {
-    // 🚨 Throw on failure (default: false)
-    // Set to true in production to fail fast
+    // 🚨 Throw on failure (default: true)
+    // Fail fast is enabled by default; set to false for lenient mode
     options.ThrowOnResolveFailure = true;
 
     // ⏱️ Timeout per secret (default: 30 seconds)
@@ -266,7 +266,7 @@ string? uri = KeyVaultReferenceResolverExtensions.ExtractSecretUri(value);
 ## 🔒 Security Best Practices
 
 1. **Use Managed Identity in Azure** — No secrets to manage
-2. **Enable `ThrowOnResolveFailure` in production** — Fail fast if secrets can't be loaded
+2. **Keep `ThrowOnResolveFailure` enabled (default)** — Fail fast if secrets can't be loaded
 3. **Use specific secret versions for critical configs** — Prevents unexpected changes
 4. **Grant minimal permissions** — Only `Get` permission on secrets is required
 5. **Audit access** — Enable Key Vault logging in Azure

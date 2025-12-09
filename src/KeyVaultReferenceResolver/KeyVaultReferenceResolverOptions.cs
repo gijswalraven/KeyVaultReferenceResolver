@@ -16,9 +16,9 @@ namespace KeyVaultReferenceResolver
 
         /// <summary>
         /// Gets or sets whether to throw an exception when a secret cannot be resolved.
-        /// Default is false (logs a warning and continues).
+        /// Default is true (fail fast).
         /// </summary>
-        public bool ThrowOnResolveFailure { get; set; } = false;
+        public bool ThrowOnResolveFailure { get; set; } = true;
 
         /// <summary>
         /// Gets or sets the timeout for secret retrieval operations.
