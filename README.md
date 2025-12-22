@@ -281,6 +281,110 @@ string? uri = KeyVaultReferenceResolverExtensions.ExtractSecretUri(value);
 
 ---
 
+## 🔷 HashiCorp Vault Support
+
+KeyVaultReferenceResolver also supports **HashiCorp Vault** via a separate package:
+
+```bash
+dotnet add package KeyVaultReferenceResolver.HashiCorp
+```
+
+### Basic Usage
+
+```csharp
+using KeyVaultReferenceResolver.HashiCorp;
+
+var configuration = new ConfigurationBuilder()
+    .AddJsonFile("appsettings.json")
+    .AddHashiCorpVaultResolver()  // Auto-detects from environment
+    .Build();
+```
+
+### Configuration Formats
+
+HashiCorp Vault supports two reference formats:
+
+**Attribute Format (Azure-style):**
+```json
+{
+  "ConnectionStrings": {
+    "Database": "@HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath=secret/data/myapp;SecretKey=db-password)"
+  }
+}
+```
+
+**URI Format:**
+```json
+{
+  "ConnectionStrings": {
+    "Database": "hashicorp://vault.example.com/secret/data/myapp#db-password"
+  }
+}
+```
+
+### Authentication Methods
+
+HashiCorp Vault supports multiple authentication methods:
+
+```csharp
+// Token authentication (from VAULT_TOKEN env var)
+builder.AddHashiCorpVaultResolver();
+
+// Explicit token
+builder.AddHashiCorpVaultResolver(options =>
+{
+    options.VaultAddress = "https://vault.example.com";
+    options.AuthMethod = new TokenAuthMethod("my-token");
+});
+
+// AppRole authentication
+builder.AddHashiCorpVaultResolver(options =>
+{
+    options.VaultAddress = "https://vault.example.com";
+    options.AuthMethod = new AppRoleAuthMethod("role-id", "secret-id");
+});
+
+// Kubernetes authentication
+builder.AddHashiCorpVaultResolver(options =>
+{
+    options.VaultAddress = "http://vault.vault.svc:8200";
+    options.AuthMethod = KubernetesAuthMethod.FromFile("my-app-role");
+});
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `VAULT_ADDR` | Vault server address (e.g., `https://vault.example.com`) |
+| `VAULT_TOKEN` | Token for token authentication |
+| `VAULT_ROLE_ID` | Role ID for AppRole authentication |
+| `VAULT_SECRET_ID` | Secret ID for AppRole authentication |
+
+### Configuration Options
+
+```csharp
+builder.AddHashiCorpVaultResolver(options =>
+{
+    options.VaultAddress = "https://vault.example.com";
+    options.MountPath = "secret";           // KV secrets engine mount path
+    options.KvVersion = 2;                  // KV v1 or v2 (null = auto-detect)
+    options.Namespace = "my-namespace";     // Enterprise namespace (optional)
+    options.ThrowOnResolveFailure = true;   // Fail fast (default: true)
+    options.Timeout = TimeSpan.FromSeconds(30);
+    options.EnableCaching = true;
+});
+```
+
+### Authentication Auto-Detection
+
+When no explicit authentication method is configured, the resolver auto-detects in order:
+1. `VAULT_TOKEN` environment variable → Token auth
+2. `VAULT_ROLE_ID` + `VAULT_SECRET_ID` → AppRole auth
+3. Kubernetes service account token (if running in K8s) → Kubernetes auth
+
+---
+
 ## 🏗️ Architecture
 
 ```
