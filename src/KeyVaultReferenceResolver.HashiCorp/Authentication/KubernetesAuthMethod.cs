@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using VaultSharp.V1.AuthMethods;
 using VaultSharp.V1.AuthMethods.Kubernetes;
@@ -68,7 +69,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Authentication
         /// <returns>True if successful, false otherwise.</returns>
         public static bool TryFromFile(
             string roleName,
-            out KubernetesAuthMethod? authMethod,
+            [NotNullWhen(true)] out KubernetesAuthMethod? authMethod,
             string tokenPath = DefaultTokenPath,
             string mountPoint = "kubernetes")
         {

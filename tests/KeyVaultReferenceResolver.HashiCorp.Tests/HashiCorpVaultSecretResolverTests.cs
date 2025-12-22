@@ -96,5 +96,58 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             result.Should().NotBeNull();
             result!.Value.vaultAddress.Should().Be("https://vault.example.com");
         }
+
+        #region Path Parsing Edge Cases
+
+        [Theory]
+        [InlineData("secret/data/myapp", "secret/data/myapp")]
+        [InlineData("kv/data/nested/path/config", "kv/data/nested/path/config")]
+        [InlineData("secret/myapp", "secret/myapp")]
+        [InlineData("kv/simple", "kv/simple")]
+        public void TryExtractSecretInfo_VariousPathFormats_ExtractsPath(string path, string expectedPath)
+        {
+            var value = $"@HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath={path};SecretKey=password)";
+
+            var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(value);
+
+            result.Should().NotBeNull();
+            result!.Value.secretPath.Should().Be(expectedPath);
+        }
+
+        [Theory]
+        [InlineData("hashicorp://vault.example.com/secret/data/myapp#password", "secret/data/myapp")]
+        [InlineData("hashicorp://vault.example.com/kv/data/nested/path#key", "kv/data/nested/path")]
+        [InlineData("hashicorp://vault.example.com/secret/simple#key", "secret/simple")]
+        public void TryExtractSecretInfo_UriFormat_VariousPaths_ExtractsCorrectly(string uri, string expectedPath)
+        {
+            var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(uri);
+
+            result.Should().NotBeNull();
+            result!.Value.secretPath.Should().Be(expectedPath);
+        }
+
+        [Theory]
+        [InlineData("hashicorp://vault.example.com/a#key", "a")]
+        [InlineData("hashicorp://vault.example.com/a/b#key", "a/b")]
+        [InlineData("hashicorp://vault.example.com/a/b/c/d/e#key", "a/b/c/d/e")]
+        public void TryExtractSecretInfo_UriFormat_DeepPaths_ExtractsCorrectly(string uri, string expectedPath)
+        {
+            var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(uri);
+
+            result.Should().NotBeNull();
+            result!.Value.secretPath.Should().Be(expectedPath);
+        }
+
+        [Theory]
+        [InlineData("@HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath=secret/data/app;SecretKey=key-with-dash)")]
+        [InlineData("@HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath=secret/data/app;SecretKey=key_with_underscore)")]
+        [InlineData("@HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath=secret/data/app;SecretKey=key.with.dots)")]
+        public void TryExtractSecretInfo_SpecialCharactersInKey_ExtractsCorrectly(string value)
+        {
+            var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(value);
+            result.Should().NotBeNull();
+        }
+
+        #endregion
     }
 }

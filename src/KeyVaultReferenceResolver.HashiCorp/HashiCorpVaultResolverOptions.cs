@@ -92,16 +92,16 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
             // Try Token auth from environment
             if (TokenAuthMethod.TryFromEnvironment(out var tokenAuth))
-                return tokenAuth!;
+                return tokenAuth;
 
             // Try AppRole auth from environment
             if (AppRoleAuthMethod.TryFromEnvironment(out var appRoleAuth))
-                return appRoleAuth!;
+                return appRoleAuth;
 
             // Try Kubernetes auth if running in K8s
             if (!string.IsNullOrWhiteSpace(KubernetesRoleName) &&
                 KubernetesAuthMethod.TryFromFile(KubernetesRoleName, out var k8sAuth))
-                return k8sAuth!;
+                return k8sAuth;
 
             throw new InvalidOperationException(
                 "No authentication method configured. Set AuthMethod option, VAULT_TOKEN, " +

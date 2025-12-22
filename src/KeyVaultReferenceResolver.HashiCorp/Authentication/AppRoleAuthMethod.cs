@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using VaultSharp.V1.AuthMethods;
 using VaultSharp.V1.AuthMethods.AppRole;
 
@@ -56,7 +57,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Authentication
         /// <param name="authMethod">The created auth method, or null if environment variables are not set.</param>
         /// <param name="mountPoint">The mount point for AppRole auth. Defaults to "approle".</param>
         /// <returns>True if successful, false otherwise.</returns>
-        public static bool TryFromEnvironment(out AppRoleAuthMethod? authMethod, string mountPoint = "approle")
+        public static bool TryFromEnvironment([NotNullWhen(true)] out AppRoleAuthMethod? authMethod, string mountPoint = "approle")
         {
             var roleId = Environment.GetEnvironmentVariable("VAULT_ROLE_ID");
             var secretId = Environment.GetEnvironmentVariable("VAULT_SECRET_ID");

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using VaultSharp.V1.AuthMethods;
 using VaultSharp.V1.AuthMethods.Token;
 
@@ -42,7 +43,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Authentication
         /// </summary>
         /// <param name="authMethod">The created auth method, or null if VAULT_TOKEN is not set.</param>
         /// <returns>True if successful, false otherwise.</returns>
-        public static bool TryFromEnvironment(out TokenAuthMethod? authMethod)
+        public static bool TryFromEnvironment([NotNullWhen(true)] out TokenAuthMethod? authMethod)
         {
             var token = Environment.GetEnvironmentVariable("VAULT_TOKEN");
             if (string.IsNullOrWhiteSpace(token))

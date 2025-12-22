@@ -16,15 +16,20 @@ namespace KeyVaultReferenceResolver.HashiCorp
     /// </summary>
     public class HashiCorpVaultSecretResolver : ISecretResolver
     {
+        // Regex timeout to prevent ReDoS attacks
+        private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
+
         // Pattern 1: @HashiCorp.Vault(VaultAddress=...;SecretPath=...;SecretKey=...)
         private static readonly Regex AttributePattern = new Regex(
             @"@HashiCorp\.Vault\(VaultAddress=(?<addr>[^;)]+);SecretPath=(?<path>[^;)]+);SecretKey=(?<key>[^)]+)\)",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            RegexOptions.IgnoreCase | RegexOptions.Compiled,
+            RegexTimeout);
 
         // Pattern 2: hashicorp://host/path#key
         private static readonly Regex UriPattern = new Regex(
             @"^hashicorp://(?<host>[^/]+)/(?<path>[^#]+)#(?<key>.+)$",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            RegexOptions.IgnoreCase | RegexOptions.Compiled,
+            RegexTimeout);
 
         private readonly HashiCorpVaultResolverOptions _options;
         private readonly ILogger<HashiCorpVaultSecretResolver> _logger;
@@ -155,12 +160,15 @@ namespace KeyVaultReferenceResolver.HashiCorp
             }
 
             throw new ArgumentException(
-                $"Invalid HashiCorp Vault reference format: {secretUri}. " +
+                $"Invalid HashiCorp Vault reference format: {MaskSecretUri(secretUri)}. " +
                 "Expected format: @HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath=secret/data/myapp;SecretKey=password) " +
                 "or hashicorp://vault.example.com/secret/data/myapp#password",
                 nameof(secretUri));
         }
 
+        // Note: VaultSharp does not currently support CancellationToken (see https://github.com/rajanadar/VaultSharp/issues/368)
+        // The cancellationToken parameter is kept for future compatibility when VaultSharp adds support.
+        // Timeout is enforced at the caller level via CancellationTokenSource.CancelAfter().
         private async Task<string> ReadSecretAsync(IVaultClient client, string secretPath, string secretKey, CancellationToken cancellationToken)
         {
             // Determine mount path and actual path
@@ -192,7 +200,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 // Convert to same format for unified handling
                 if (kvV1Secret?.Data == null || !kvV1Secret.Data.TryGetValue(secretKey, out var v1Value))
                 {
-                    throw new KeyNotFoundException($"Secret key '{secretKey}' not found at path '{secretPath}'");
+                    throw new KeyNotFoundException($"Secret key not found at path '{MaskPath(secretPath)}'");
                 }
 
                 return v1Value?.ToString() ?? string.Empty;
@@ -200,7 +208,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
             if (secret?.Data?.Data == null || !secret.Data.Data.TryGetValue(secretKey, out var value))
             {
-                throw new KeyNotFoundException($"Secret key '{secretKey}' not found at path '{secretPath}'");
+                throw new KeyNotFoundException($"Secret key not found at path '{MaskPath(secretPath)}'");
             }
 
             return value?.ToString() ?? string.Empty;
@@ -239,18 +247,35 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 ? vaultAddress
                 : _options.GetEffectiveVaultAddress();
 
+            // Normalize the address to avoid duplicate clients for same vault
+            effectiveAddress = NormalizeVaultAddress(effectiveAddress);
+
             return _vaultClients.GetOrAdd(effectiveAddress, address =>
+        {
+            var authMethod = _options.GetEffectiveAuthMethod();
+            var settings = new VaultClientSettings(address, authMethod.GetAuthMethodInfo());
+
+            if (!string.IsNullOrWhiteSpace(_options.Namespace))
             {
-                var authMethod = _options.GetEffectiveAuthMethod();
-                var settings = new VaultClientSettings(address, authMethod.GetAuthMethodInfo());
+                settings.Namespace = _options.Namespace;
+            }
 
-                if (!string.IsNullOrWhiteSpace(_options.Namespace))
-                {
-                    settings.Namespace = _options.Namespace;
-                }
+            return new VaultClient(settings);
+        });
+        }
 
-                return new VaultClient(settings);
-            });
+        private static string NormalizeVaultAddress(string address)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+                return address;
+
+            // Ensure lowercase for consistent cache keys
+            address = address.ToLowerInvariant();
+
+            // Remove trailing slash
+            address = address.TrimEnd('/');
+
+            return address;
         }
 
         private static string MaskSecretUri(string uri)
