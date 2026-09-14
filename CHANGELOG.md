@@ -168,8 +168,10 @@ resolution path in both packages.
 
 - All GitHub Actions pinned to commit SHAs; `permissions: contents: read` on
   CI; `persist-credentials: false` on checkouts that do not push.
-- `claude.yml` gated on `author_association`; `id-token: write` removed from
-  both Claude workflows.
+- `claude.yml` gated on `author_association`, so untrusted input can no longer
+  start a job holding repository secrets. `id-token: write` is retained on both
+  Claude workflows because the action requires it to authenticate; the author
+  gate is the control, not withholding the permission.
 - CI fails on vulnerable direct or transitive packages.
 - Added CodeQL (`security-extended`), Dependabot for `nuget` and
   `github-actions`, and an OpenSSF Scorecard workflow.

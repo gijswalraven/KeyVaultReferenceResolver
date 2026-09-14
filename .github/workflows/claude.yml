@@ -34,11 +34,14 @@ jobs:
       pull-requests: read
       issues: read
       actions: read # Required for Claude to read CI results on PRs
-      # id-token: write is deliberately NOT granted. Authentication uses the
-      # claude_code_oauth_token secret, not OIDC, and on a workflow driven by
-      # untrusted input that permission would let injected instructions mint a
-      # signed GitHub OIDC token usable against any cloud trust policy naming
-      # this repository.
+      # id-token: write is required: claude-code-action exchanges a GitHub OIDC
+      # token as part of authenticating, and fails without it. It is a real
+      # exposure on a workflow driven by untrusted input, because the token can
+      # be minted against any cloud trust policy naming this repository - so the
+      # control is the author_association gate on the job above, which keeps
+      # untrusted input from reaching this job at all, rather than withholding
+      # the permission.
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
