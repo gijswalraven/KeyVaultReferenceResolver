@@ -10,6 +10,9 @@ jobs:
     permissions:
       packages: write
       contents: read
+      # Lets the job request the OIDC token that NuGet Trusted Publishing
+      # exchanges for a short-lived API key. Without this the login step fails.
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -55,10 +58,24 @@ jobs:
       - name: Pack
         run: dotnet pack --no-build -c Release -o ./artifacts
 
+      # Trusted Publishing: exchange this job's OIDC token for a short-lived
+      # nuget.org API key, so no long-lived secret is stored in the repo.
+      # The temporary key is valid for one hour, so this runs immediately
+      # before the push rather than earlier in the job.
+      # Requires a matching policy on nuget.org (Account -> Trusted Publishing)
+      # for owner gijswalraven, repo KeyVaultReferenceResolver, workflow release.yml.
+      - name: NuGet login (OIDC)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          # nuget.org profile name, not an email address. Public information --
+          # it is the listed owner of the packages -- so it is not a secret.
+          user: GijsWalraven
+
       - name: Publish to NuGet.org
         run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
 
       - name: Publish to GitHub Packages
         continue-on-error: true
