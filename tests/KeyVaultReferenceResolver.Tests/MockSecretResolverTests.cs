@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using FluentAssertions;
 using Xunit;
 
 namespace KeyVaultReferenceResolver.Tests;
@@ -27,9 +26,9 @@ public class MockSecretResolverTests
         var resolver = new MockSecretResolver(secrets);
 
         // Assert
-        resolver.Count.Should().Be(2);
-        resolver.ContainsSecret(TestSecretUri1).Should().BeTrue();
-        resolver.ContainsSecret(TestSecretUri2).Should().BeTrue();
+        Assert.Equal(2, resolver.Count);
+        Assert.True(resolver.ContainsSecret(TestSecretUri1));
+        Assert.True(resolver.ContainsSecret(TestSecretUri2));
     }
 
     [Fact]
@@ -39,8 +38,8 @@ public class MockSecretResolverTests
         Action act = () => new MockSecretResolver(null!);
 
         // Assert
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("secrets");
+        var ex = Assert.Throws<ArgumentNullException>(act);
+        Assert.Equal("secrets", ex.ParamName);
     }
 
     [Fact]
@@ -50,7 +49,7 @@ public class MockSecretResolverTests
         var resolver = new MockSecretResolver();
 
         // Assert
-        resolver.Count.Should().Be(0);
+        Assert.Equal(0, resolver.Count);
     }
 
     [Fact]
@@ -63,9 +62,9 @@ public class MockSecretResolverTests
         resolver.AddSecret(TestSecretUri1, TestSecretValue1);
 
         // Assert
-        resolver.Count.Should().Be(1);
-        resolver.ContainsSecret(TestSecretUri1).Should().BeTrue();
-        resolver.ResolveSecret(TestSecretUri1).Should().Be(TestSecretValue1);
+        Assert.Equal(1, resolver.Count);
+        Assert.True(resolver.ContainsSecret(TestSecretUri1));
+        Assert.Equal(TestSecretValue1, resolver.ResolveSecret(TestSecretUri1));
     }
 
     [Fact]
@@ -78,7 +77,7 @@ public class MockSecretResolverTests
         var result = resolver.AddSecret(TestSecretUri1, TestSecretValue1);
 
         // Assert
-        result.Should().BeSameAs(resolver);
+        Assert.Same(resolver, result);
     }
 
     [Fact]
@@ -96,9 +95,9 @@ public class MockSecretResolverTests
         resolver.AddSecrets(secrets);
 
         // Assert
-        resolver.Count.Should().Be(2);
-        resolver.ResolveSecret(TestSecretUri1).Should().Be(TestSecretValue1);
-        resolver.ResolveSecret(TestSecretUri2).Should().Be(TestSecretValue2);
+        Assert.Equal(2, resolver.Count);
+        Assert.Equal(TestSecretValue1, resolver.ResolveSecret(TestSecretUri1));
+        Assert.Equal(TestSecretValue2, resolver.ResolveSecret(TestSecretUri2));
     }
 
     [Fact]
@@ -115,7 +114,7 @@ public class MockSecretResolverTests
         var result = resolver.AddSecrets(secrets);
 
         // Assert
-        result.Should().BeSameAs(resolver);
+        Assert.Same(resolver, result);
     }
 
     [Fact]
@@ -129,7 +128,7 @@ public class MockSecretResolverTests
         var result = resolver.ResolveSecret(TestSecretUri1);
 
         // Assert
-        result.Should().Be(TestSecretValue1);
+        Assert.Equal(TestSecretValue1, result);
     }
 
     [Fact]
@@ -142,8 +141,8 @@ public class MockSecretResolverTests
         Action act = () => resolver.ResolveSecret(TestSecretUri1);
 
         // Assert
-        act.Should().Throw<KeyNotFoundException>()
-            .WithMessage($"Secret not found: {TestSecretUri1}");
+        var ex = Assert.Throws<KeyNotFoundException>(act);
+        Assert.Equal($"Secret not found: {TestSecretUri1}", ex.Message);
     }
 
     [Fact]
@@ -156,7 +155,7 @@ public class MockSecretResolverTests
         var result = resolver.ResolveSecret(TestSecretUri1);
 
         // Assert
-        result.Should().BeEmpty();
+        Assert.Empty(result);
     }
 
     [Fact]
@@ -170,7 +169,7 @@ public class MockSecretResolverTests
         var result = await resolver.ResolveSecretAsync(TestSecretUri1);
 
         // Assert
-        result.Should().Be(TestSecretValue1);
+        Assert.Equal(TestSecretValue1, result);
     }
 
     [Fact]
@@ -183,8 +182,8 @@ public class MockSecretResolverTests
         Func<Task> act = async () => await resolver.ResolveSecretAsync(TestSecretUri1);
 
         // Assert
-        await act.Should().ThrowAsync<KeyNotFoundException>()
-            .WithMessage($"Secret not found: {TestSecretUri1}");
+        var ex = await Assert.ThrowsAsync<KeyNotFoundException>(act);
+        Assert.Equal($"Secret not found: {TestSecretUri1}", ex.Message);
     }
 
     [Fact]
@@ -199,9 +198,9 @@ public class MockSecretResolverTests
         resolver.Clear();
 
         // Assert
-        resolver.Count.Should().Be(0);
-        resolver.ContainsSecret(TestSecretUri1).Should().BeFalse();
-        resolver.ContainsSecret(TestSecretUri2).Should().BeFalse();
+        Assert.Equal(0, resolver.Count);
+        Assert.False(resolver.ContainsSecret(TestSecretUri1));
+        Assert.False(resolver.ContainsSecret(TestSecretUri2));
     }
 
     [Fact]
@@ -213,7 +212,7 @@ public class MockSecretResolverTests
             .AddSecret(TestSecretUri2, TestSecretValue2);
 
         // Act & Assert
-        resolver.Count.Should().Be(2);
+        Assert.Equal(2, resolver.Count);
     }
 
     [Fact]
@@ -224,7 +223,7 @@ public class MockSecretResolverTests
             .AddSecret(TestSecretUri1, TestSecretValue1);
 
         // Act & Assert
-        resolver.ContainsSecret(TestSecretUri1).Should().BeTrue();
+        Assert.True(resolver.ContainsSecret(TestSecretUri1));
     }
 
     [Fact]
@@ -234,6 +233,6 @@ public class MockSecretResolverTests
         var resolver = new MockSecretResolver();
 
         // Act & Assert
-        resolver.ContainsSecret(TestSecretUri1).Should().BeFalse();
+        Assert.False(resolver.ContainsSecret(TestSecretUri1));
     }
 }

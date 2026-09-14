@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Azure.Identity;
-using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -33,7 +32,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
 
         // Assert
-        result.Should().BeTrue();
+        Assert.True(result);
     }
 
     [Fact]
@@ -46,7 +45,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
 
         // Assert
-        result.Should().BeTrue();
+        Assert.True(result);
     }
 
     [Fact]
@@ -59,7 +58,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
 
         // Assert
-        result.Should().BeFalse();
+        Assert.False(result);
     }
 
     [Fact]
@@ -69,7 +68,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(null);
 
         // Assert
-        result.Should().BeFalse();
+        Assert.False(result);
     }
 
     [Fact]
@@ -79,7 +78,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(string.Empty);
 
         // Assert
-        result.Should().BeFalse();
+        Assert.False(result);
     }
 
     [Theory]
@@ -92,7 +91,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
 
         // Assert
-        result.Should().BeTrue();
+        Assert.True(result);
     }
 
     [Fact]
@@ -102,7 +101,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(ValidVaultNameReference);
 
         // Assert
-        result.Should().BeTrue();
+        Assert.True(result);
     }
 
     [Fact]
@@ -112,7 +111,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(ValidVaultNameReferenceWithVersion);
 
         // Assert
-        result.Should().BeTrue();
+        Assert.True(result);
     }
 
     [Fact]
@@ -125,7 +124,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
 
         // Assert
-        result.Should().BeTrue();
+        Assert.True(result);
     }
 
     [Theory]
@@ -138,7 +137,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value);
 
         // Assert
-        result.Should().BeTrue();
+        Assert.True(result);
     }
 
     #endregion
@@ -155,7 +154,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(value);
 
         // Assert
-        result.Should().Be(TestSecretUri);
+        Assert.Equal(TestSecretUri, result);
     }
 
     [Fact]
@@ -168,7 +167,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(value);
 
         // Assert
-        result.Should().Be(TestSecretUriWithVersion);
+        Assert.Equal(TestSecretUriWithVersion, result);
     }
 
     [Fact]
@@ -181,7 +180,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(value);
 
         // Assert
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -191,7 +190,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(null);
 
         // Assert
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -201,7 +200,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(string.Empty);
 
         // Assert
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -211,7 +210,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(ValidVaultNameReference);
 
         // Assert
-        result.Should().Be(TestSecretUri);
+        Assert.Equal(TestSecretUri, result);
     }
 
     [Fact]
@@ -221,7 +220,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(ValidVaultNameReferenceWithVersion);
 
         // Assert
-        result.Should().Be(TestSecretUriWithVersion);
+        Assert.Equal(TestSecretUriWithVersion, result);
     }
 
     [Theory]
@@ -233,7 +232,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(input);
 
         // Assert
-        result.Should().Be(expectedUri);
+        Assert.Equal(expectedUri, result);
     }
 
     #endregion
@@ -258,7 +257,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["ConnectionString"].Should().Be(TestSecretValue);
+        Assert.Equal(TestSecretValue, config["ConnectionString"]);
     }
 
     [Fact]
@@ -272,8 +271,8 @@ public class KeyVaultReferenceResolverExtensionsTests
         Action act = () => builder!.AddKeyVaultReferenceResolver(mockResolver);
 
         // Assert
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("builder");
+        var ex = Assert.Throws<ArgumentNullException>(act);
+        Assert.Equal("builder", ex.ParamName);
     }
 
     [Fact]
@@ -286,8 +285,8 @@ public class KeyVaultReferenceResolverExtensionsTests
         Action act = () => builder.AddKeyVaultReferenceResolver((ISecretResolver)null!);
 
         // Assert
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("secretResolver");
+        var ex = Assert.Throws<ArgumentNullException>(act);
+        Assert.Equal("secretResolver", ex.ParamName);
     }
 
     [Fact]
@@ -309,8 +308,8 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["MySecret"].Should().Be(TestSecretValue);
-        config["RegularValue"].Should().Be("not-a-secret");
+        Assert.Equal(TestSecretValue, config["MySecret"]);
+        Assert.Equal("not-a-secret", config["RegularValue"]);
     }
 
     [Fact]
@@ -338,8 +337,8 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["Secret1"].Should().Be(secretValue1);
-        config["Secret2"].Should().Be(secretValue2);
+        Assert.Equal(secretValue1, config["Secret1"]);
+        Assert.Equal(secretValue2, config["Secret2"]);
     }
 
     [Fact]
@@ -360,8 +359,8 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["Setting1"].Should().Be("value1");
-        config["Setting2"].Should().Be("value2");
+        Assert.Equal("value1", config["Setting1"]);
+        Assert.Equal("value2", config["Setting2"]);
     }
 
     [Fact]
@@ -381,7 +380,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["EmptyKey"].Should().BeEmpty();
+        Assert.Equal(string.Empty, config["EmptyKey"]);
     }
 
     [Fact]
@@ -401,7 +400,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["NullKey"].Should().BeNull();
+        Assert.Null(config["NullKey"]);
     }
 
     [Fact]
@@ -422,7 +421,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert - original value preserved (not resolved)
-        config["MissingSecret"].Should().Be(ValidKeyVaultReference);
+        Assert.Equal(ValidKeyVaultReference, config["MissingSecret"]);
     }
 
     [Fact]
@@ -442,8 +441,8 @@ public class KeyVaultReferenceResolverExtensionsTests
         Action act = () => builder.AddKeyVaultReferenceResolver(mockResolver, options);
 
         // Assert
-        act.Should().Throw<KeyVaultReferenceResolutionException>()
-            .Which.ConfigurationKey.Should().Be("MissingSecret");
+        var ex = Assert.Throws<KeyVaultReferenceResolutionException>(act);
+        Assert.Equal("MissingSecret", ex.ConfigurationKey);
     }
 
     [Fact]
@@ -456,7 +455,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = builder.AddKeyVaultReferenceResolver();
 
         // Assert
-        result.Should().BeSameAs(builder);
+        Assert.Same(builder, result);
     }
 
     [Fact]
@@ -470,7 +469,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = builder.AddKeyVaultReferenceResolver(credential);
 
         // Assert
-        result.Should().BeSameAs(builder);
+        Assert.Same(builder, result);
     }
 
     [Fact]
@@ -491,10 +490,10 @@ public class KeyVaultReferenceResolverExtensionsTests
         });
 
         // Assert
-        actionInvoked.Should().BeTrue();
-        capturedOptions.Should().NotBeNull();
-        capturedOptions!.ThrowOnResolveFailure.Should().BeTrue();
-        capturedOptions.Timeout.Should().Be(TimeSpan.FromMinutes(5));
+        Assert.True(actionInvoked);
+        Assert.NotNull(capturedOptions);
+        Assert.True(capturedOptions!.ThrowOnResolveFailure);
+        Assert.Equal(TimeSpan.FromMinutes(5), capturedOptions.Timeout);
     }
 
     [Fact]
@@ -509,7 +508,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var result = builder.AddKeyVaultReferenceResolver(options, mockLogger.Object);
 
         // Assert
-        result.Should().BeSameAs(builder);
+        Assert.Same(builder, result);
     }
 
     [Fact]
@@ -530,7 +529,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["Secret"].Should().Be(TestSecretValue);
+        Assert.Equal(TestSecretValue, config["Secret"]);
     }
 
     [Fact]
@@ -553,7 +552,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         // Assert - logger should have been called (we verify it doesn't throw)
         // The actual logging is internal, we just verify the operation completes
         var config = builder.Build();
-        config["Secret"].Should().Be(TestSecretValue);
+        Assert.Equal(TestSecretValue, config["Secret"]);
     }
 
     #endregion
@@ -578,7 +577,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["ConnectionString"].Should().Be(TestSecretValue);
+        Assert.Equal(TestSecretValue, config["ConnectionString"]);
     }
 
     [Fact]
@@ -599,7 +598,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["ConnectionString"].Should().Be(TestSecretValue);
+        Assert.Equal(TestSecretValue, config["ConnectionString"]);
     }
 
     [Fact]
@@ -629,8 +628,8 @@ public class KeyVaultReferenceResolverExtensionsTests
         var config = builder.Build();
 
         // Assert
-        config["Secret1"].Should().Be(secretValue1);
-        config["Secret2"].Should().Be(secretValue2);
+        Assert.Equal(secretValue1, config["Secret1"]);
+        Assert.Equal(secretValue2, config["Secret2"]);
     }
 
     [Fact]
@@ -650,8 +649,8 @@ public class KeyVaultReferenceResolverExtensionsTests
         Action act = () => builder.AddKeyVaultReferenceResolver(mockResolver, options);
 
         // Assert
-        act.Should().Throw<KeyVaultReferenceResolutionException>()
-            .Which.ConfigurationKey.Should().Be("MissingSecret");
+        var ex = Assert.Throws<KeyVaultReferenceResolutionException>(act);
+        Assert.Equal("MissingSecret", ex.ConfigurationKey);
     }
 
     #endregion

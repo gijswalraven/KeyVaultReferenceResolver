@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
@@ -12,7 +11,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void IsHashiCorpVaultReference_ValidFormats_ReturnsTrue(string value)
         {
             var result = HashiCorpVaultReferenceExtensions.IsHashiCorpVaultReference(value);
-            result.Should().BeTrue();
+            Assert.True(result);
         }
 
         [Theory]
@@ -23,7 +22,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void IsHashiCorpVaultReference_InvalidFormats_ReturnsFalse(string? value)
         {
             var result = HashiCorpVaultReferenceExtensions.IsHashiCorpVaultReference(value);
-            result.Should().BeFalse();
+            Assert.False(result);
         }
 
         [Fact]
@@ -33,10 +32,10 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = HashiCorpVaultReferenceExtensions.ExtractSecretInfo(value);
 
-            result.Should().NotBeNull();
-            result!.Value.vaultAddress.Should().Be("https://vault.example.com");
-            result.Value.secretPath.Should().Be("secret/data/myapp");
-            result.Value.secretKey.Should().Be("db-password");
+            Assert.NotNull(result);
+            Assert.Equal("https://vault.example.com", result!.Value.vaultAddress);
+            Assert.Equal("secret/data/myapp", result.Value.secretPath);
+            Assert.Equal("db-password", result.Value.secretKey);
         }
 
         [Fact]
@@ -46,17 +45,17 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = HashiCorpVaultReferenceExtensions.ExtractSecretInfo(value);
 
-            result.Should().NotBeNull();
-            result!.Value.vaultAddress.Should().Be("https://vault.example.com");
-            result.Value.secretPath.Should().Be("secret/data/myapp");
-            result.Value.secretKey.Should().Be("db-password");
+            Assert.NotNull(result);
+            Assert.Equal("https://vault.example.com", result!.Value.vaultAddress);
+            Assert.Equal("secret/data/myapp", result.Value.secretPath);
+            Assert.Equal("db-password", result.Value.secretKey);
         }
 
         [Fact]
         public void ExtractSecretInfo_InvalidValue_ReturnsNull()
         {
             var result = HashiCorpVaultReferenceExtensions.ExtractSecretInfo("not-a-reference");
-            result.Should().BeNull();
+            Assert.Null(result);
         }
 
         [Fact]
@@ -80,8 +79,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             var config = builder.Build();
 
             // Assert
-            config["ConnectionStrings:Database"].Should().Be("resolved-password");
-            config["RegularSetting"].Should().Be("regular-value");
+            Assert.Equal("resolved-password", config["ConnectionStrings:Database"]);
+            Assert.Equal("regular-value", config["RegularSetting"]);
         }
 
         [Fact]
@@ -104,7 +103,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             var config = builder.Build();
 
             // Assert
-            config["ApiKey"].Should().Be("resolved-api-key");
+            Assert.Equal("resolved-api-key", config["ApiKey"]);
         }
 
         [Fact]
@@ -125,8 +124,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             var config = builder.Build();
 
             // Assert
-            config["Setting1"].Should().Be("value1");
-            config["Setting2"].Should().Be("value2");
+            Assert.Equal("value1", config["Setting1"]);
+            Assert.Equal("value2", config["Setting2"]);
         }
 
         [Fact]
@@ -145,7 +144,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             var options = new HashiCorpVaultResolverOptions { ThrowOnResolveFailure = false };
             var act = () => builder.AddHashiCorpVaultResolver(mockResolver, options);
 
-            act.Should().NotThrow();
+            Assert.Null(Record.Exception(act));
         }
 
         [Fact]
@@ -164,8 +163,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             var options = new HashiCorpVaultResolverOptions { ThrowOnResolveFailure = true };
             var act = () => builder.AddHashiCorpVaultResolver(mockResolver, options);
 
-            act.Should().Throw<HashiCorpVaultReferenceResolutionException>()
-                .Which.ConfigurationKey.Should().Be("Secret");
+            var ex = Assert.Throws<HashiCorpVaultReferenceResolutionException>(act);
+            Assert.Equal("Secret", ex.ConfigurationKey);
         }
     }
 }

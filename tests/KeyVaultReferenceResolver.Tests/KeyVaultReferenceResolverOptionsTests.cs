@@ -1,6 +1,5 @@
 using System;
 using Azure.Identity;
-using FluentAssertions;
 using Xunit;
 
 namespace KeyVaultReferenceResolver.Tests;
@@ -14,7 +13,7 @@ public class KeyVaultReferenceResolverOptionsTests
         var options = new KeyVaultReferenceResolverOptions();
 
         // Assert
-        options.Credential.Should().BeNull();
+        Assert.Null(options.Credential);
     }
 
     [Fact]
@@ -24,7 +23,7 @@ public class KeyVaultReferenceResolverOptionsTests
         var options = new KeyVaultReferenceResolverOptions();
 
         // Assert
-        options.ThrowOnResolveFailure.Should().BeTrue();
+        Assert.True(options.ThrowOnResolveFailure);
     }
 
     [Fact]
@@ -34,7 +33,7 @@ public class KeyVaultReferenceResolverOptionsTests
         var options = new KeyVaultReferenceResolverOptions();
 
         // Assert
-        options.Timeout.Should().Be(TimeSpan.FromSeconds(30));
+        Assert.Equal(TimeSpan.FromSeconds(30), options.Timeout);
     }
 
     [Fact]
@@ -44,7 +43,7 @@ public class KeyVaultReferenceResolverOptionsTests
         var options = new KeyVaultReferenceResolverOptions();
 
         // Assert
-        options.EnableCaching.Should().BeTrue();
+        Assert.True(options.EnableCaching);
     }
 
     [Fact]
@@ -62,9 +61,9 @@ public class KeyVaultReferenceResolverOptionsTests
         options.EnableCaching = false;
 
         // Assert
-        options.Credential.Should().BeSameAs(credential);
-        options.ThrowOnResolveFailure.Should().BeFalse();
-        options.Timeout.Should().Be(timeout);
-        options.EnableCaching.Should().BeFalse();
+        Assert.Same(credential, options.Credential);
+        Assert.False(options.ThrowOnResolveFailure);
+        Assert.Equal(timeout, options.Timeout);
+        Assert.False(options.EnableCaching);
     }
 }

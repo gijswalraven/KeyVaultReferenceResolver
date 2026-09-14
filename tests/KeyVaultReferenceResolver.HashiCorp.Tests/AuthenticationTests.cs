@@ -1,5 +1,4 @@
 using System;
-using FluentAssertions;
 using KeyVaultReferenceResolver.HashiCorp.Authentication;
 using Xunit;
 
@@ -16,7 +15,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var authInfo = authMethod.GetAuthMethodInfo();
 
-            authInfo.Should().NotBeNull();
+            Assert.NotNull(authInfo);
         }
 
         [Theory]
@@ -27,8 +26,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var act = () => new TokenAuthMethod(token!);
 
-            act.Should().Throw<ArgumentException>()
-                .WithMessage("*Token cannot be null or empty*");
+            var ex = Assert.Throws<ArgumentException>(act);
+            Assert.Contains("Token cannot be null or empty", ex.Message);
         }
 
         [Fact]
@@ -39,8 +38,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = TokenAuthMethod.TryFromEnvironment(out var authMethod);
 
-            result.Should().BeFalse();
-            authMethod.Should().BeNull();
+            Assert.False(result);
+            Assert.Null(authMethod);
         }
 
         [Fact]
@@ -53,8 +52,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var result = TokenAuthMethod.TryFromEnvironment(out var authMethod);
 
-                result.Should().BeTrue();
-                authMethod.Should().NotBeNull();
+                Assert.True(result);
+                Assert.NotNull(authMethod);
             }
             finally
             {
@@ -69,8 +68,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var act = () => TokenAuthMethod.FromEnvironment();
 
-            act.Should().Throw<InvalidOperationException>()
-                .WithMessage("*VAULT_TOKEN environment variable is not set*");
+            var ex = Assert.Throws<InvalidOperationException>(act);
+            Assert.Contains("VAULT_TOKEN environment variable is not set", ex.Message);
         }
 
         #endregion
@@ -84,7 +83,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var authInfo = authMethod.GetAuthMethodInfo();
 
-            authInfo.Should().NotBeNull();
+            Assert.NotNull(authInfo);
         }
 
         [Fact]
@@ -94,7 +93,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var authInfo = authMethod.GetAuthMethodInfo();
 
-            authInfo.Should().NotBeNull();
+            Assert.NotNull(authInfo);
         }
 
         [Theory]
@@ -105,8 +104,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var act = () => new AppRoleAuthMethod(roleId!, secretId);
 
-            act.Should().Throw<ArgumentException>()
-                .WithMessage("*Role ID cannot be null or empty*");
+            var ex = Assert.Throws<ArgumentException>(act);
+            Assert.Contains("Role ID cannot be null or empty", ex.Message);
         }
 
         [Theory]
@@ -117,8 +116,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var act = () => new AppRoleAuthMethod(roleId, secretId!);
 
-            act.Should().Throw<ArgumentException>()
-                .WithMessage("*Secret ID cannot be null or empty*");
+            var ex = Assert.Throws<ArgumentException>(act);
+            Assert.Contains("Secret ID cannot be null or empty", ex.Message);
         }
 
         [Fact]
@@ -129,8 +128,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = AppRoleAuthMethod.TryFromEnvironment(out var authMethod);
 
-            result.Should().BeFalse();
-            authMethod.Should().BeNull();
+            Assert.False(result);
+            Assert.Null(authMethod);
         }
 
         [Fact]
@@ -145,8 +144,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var result = AppRoleAuthMethod.TryFromEnvironment(out var authMethod);
 
-                result.Should().BeFalse();
-                authMethod.Should().BeNull();
+                Assert.False(result);
+                Assert.Null(authMethod);
             }
             finally
             {
@@ -167,8 +166,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var result = AppRoleAuthMethod.TryFromEnvironment(out var authMethod);
 
-                result.Should().BeTrue();
-                authMethod.Should().NotBeNull();
+                Assert.True(result);
+                Assert.NotNull(authMethod);
             }
             finally
             {
@@ -188,7 +187,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var authInfo = authMethod.GetAuthMethodInfo();
 
-            authInfo.Should().NotBeNull();
+            Assert.NotNull(authInfo);
         }
 
         [Fact]
@@ -198,7 +197,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var authInfo = authMethod.GetAuthMethodInfo();
 
-            authInfo.Should().NotBeNull();
+            Assert.NotNull(authInfo);
         }
 
         [Theory]
@@ -209,8 +208,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var act = () => new KubernetesAuthMethod(roleName!, jwt);
 
-            act.Should().Throw<ArgumentException>()
-                .WithMessage("*Role name cannot be null or empty*");
+            var ex = Assert.Throws<ArgumentException>(act);
+            Assert.Contains("Role name cannot be null or empty", ex.Message);
         }
 
         [Theory]
@@ -221,8 +220,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var act = () => new KubernetesAuthMethod(roleName, jwt!);
 
-            act.Should().Throw<ArgumentException>()
-                .WithMessage("*JWT cannot be null or empty*");
+            var ex = Assert.Throws<ArgumentException>(act);
+            Assert.Contains("JWT cannot be null or empty", ex.Message);
         }
 
         [Fact]
@@ -233,8 +232,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
                 out var authMethod,
                 "/non/existent/path/token");
 
-            result.Should().BeFalse();
-            authMethod.Should().BeNull();
+            Assert.False(result);
+            Assert.Null(authMethod);
         }
 
         [Fact]
@@ -244,8 +243,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
                 "",
                 out var authMethod);
 
-            result.Should().BeFalse();
-            authMethod.Should().BeNull();
+            Assert.False(result);
+            Assert.Null(authMethod);
         }
 
         [Fact]
@@ -256,13 +255,13 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             // On a dev machine, this should be false
             // In K8s, the service account token file would exist
-            result.Should().BeFalse();
+            Assert.False(result);
         }
 
         [Fact]
         public void KubernetesAuthMethod_DefaultTokenPath_IsCorrect()
         {
-            KubernetesAuthMethod.DefaultTokenPath.Should().Be("/var/run/secrets/kubernetes.io/serviceaccount/token");
+            Assert.Equal("/var/run/secrets/kubernetes.io/serviceaccount/token", KubernetesAuthMethod.DefaultTokenPath);
         }
 
         #endregion
