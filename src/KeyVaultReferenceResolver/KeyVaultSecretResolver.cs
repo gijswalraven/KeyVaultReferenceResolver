@@ -66,7 +66,7 @@ namespace KeyVaultReferenceResolver
                 _secretCache.TryGetValue(secretUri, out var cached) &&
                 !cached.IsExpired)
             {
-                _logger.LogDebug("Returning cached secret for URI: {SecretUri}", MaskUri(secretUri));
+                _logger.LogDebug(LogEvents.CacheHit, "Returning cached secret for URI: {SecretUri}", MaskUri(secretUri));
                 return cached.Value;
             }
 
@@ -80,7 +80,7 @@ namespace KeyVaultReferenceResolver
 
                 try
                 {
-                    _logger.LogDebug("Resolving secret {SecretName} from vault {VaultUri}", secretName, vaultUri);
+                    _logger.LogDebug(LogEvents.SecretResolved, "Resolving secret {SecretName} from vault {VaultUri}", secretName, vaultUri);
 
                     var response = string.IsNullOrEmpty(version)
                         ? await client.GetSecretAsync(secretName, cancellationToken: cts.Token).ConfigureAwait(false)
@@ -99,7 +99,7 @@ namespace KeyVaultReferenceResolver
                     // Information level carries no secret name: these records are shipped to
                     // aggregated log stores, where the set of names would amount to an inventory
                     // of the vault's contents. The name is available at Debug.
-                    _logger.LogInformation("Successfully resolved secret from {VaultUri}", vaultUri);
+                    _logger.LogInformation(LogEvents.SecretRead, "Successfully resolved secret from {VaultUri}", vaultUri);
                     return secretValue;
                 }
                 catch (OperationCanceledException ex) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
@@ -214,6 +214,7 @@ namespace KeyVaultReferenceResolver
                 }
 
                 _logger.LogWarning(
+                    LogEvents.SecretNotYetValid,
                     "Secret from {VaultUri} is not valid until {NotBefore:u} but is being used now",
                     properties.VaultUri,
                     properties.NotBefore.Value);
@@ -233,6 +234,7 @@ namespace KeyVaultReferenceResolver
                 }
 
                 _logger.LogWarning(
+                    LogEvents.SecretExpired,
                     "Secret from {VaultUri} expired at {ExpiresOn:u} and is being used anyway",
                     properties.VaultUri,
                     expiresOn);
@@ -241,6 +243,7 @@ namespace KeyVaultReferenceResolver
                      expiresOn - now <= _options.ExpiryWarningThreshold)
             {
                 _logger.LogWarning(
+                    LogEvents.SecretExpiringSoon,
                     "Secret from {VaultUri} expires at {ExpiresOn:u}, within the {Threshold} warning threshold",
                     properties.VaultUri,
                     expiresOn,

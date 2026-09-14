@@ -120,6 +120,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
                 var succeeded = resolvedValues.Count(pair => pair.Value != null);
                 logger.LogInformation(
+                    HashiCorpLogEvents.ResolutionSummary,
                     "Resolved {Count} of {Total} HashiCorp Vault reference(s)",
                     succeeded,
                     resolvedValues.Count);
@@ -178,7 +179,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
                 resolved[reference.Key] = secretValue;
                 // Debug rather than Information - see the Azure-side extension for rationale.
-                logger.LogDebug("Resolved HashiCorp Vault reference: {ConfigKey}", reference.Key);
+                logger.LogDebug(HashiCorpLogEvents.SecretResolved, "Resolved HashiCorp Vault reference: {ConfigKey}", reference.Key);
             }
             catch (Exception ex)
             {
@@ -193,6 +194,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     ex));
 
                 logger.LogError(
+                    HashiCorpLogEvents.ResolutionFailed,
                     ex,
                     "Failed to resolve HashiCorp Vault reference for '{ConfigKey}'; the value has been set to null",
                     reference.Key);

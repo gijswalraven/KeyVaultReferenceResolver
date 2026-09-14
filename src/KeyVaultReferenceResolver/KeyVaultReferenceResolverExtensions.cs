@@ -195,6 +195,7 @@ namespace KeyVaultReferenceResolver
 
             var succeeded = resolvedValues.Count(pair => pair.Value != null);
             logger.LogInformation(
+                LogEvents.ResolutionSummary,
                 "Resolved {Count} of {Total} configuration value(s) containing Key Vault reference(s)",
                 succeeded,
                 resolvedValues.Count);
@@ -287,7 +288,7 @@ namespace KeyVaultReferenceResolver
                 // which configuration keys hold credentials, and key names routinely embed
                 // tenant or customer identifiers (Clients:AcmeCorp:ApiKey). The aggregate count
                 // is logged at Information instead.
-                logger.LogDebug("Resolved Key Vault reference: {SecretUri}", MaskUri(secretUri));
+                logger.LogDebug(LogEvents.SecretResolved, "Resolved Key Vault reference: {SecretUri}", MaskUri(secretUri));
             }
             catch (Exception ex)
             {
@@ -304,6 +305,7 @@ namespace KeyVaultReferenceResolver
                     ex));
 
                 logger.LogError(
+                    LogEvents.ResolutionFailed,
                     ex,
                     "Failed to resolve Key Vault reference for '{ConfigKey}'; the value has been set to null",
                     configKey);
