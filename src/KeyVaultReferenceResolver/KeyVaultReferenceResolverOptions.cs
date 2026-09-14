@@ -149,6 +149,17 @@ namespace KeyVaultReferenceResolver
         public TimeSpan CacheTtl { get; set; } = System.Threading.Timeout.InfiniteTimeSpan;
 
         /// <summary>
+        /// Gets or sets the Key Vault DNS suffix used to build a URI from the
+        /// <c>VaultName=</c> reference format. Defaults to <c>vault.azure.net</c>.
+        /// </summary>
+        /// <remarks>
+        /// Set this for sovereign clouds - <c>vault.usgovcloudapi.net</c> for Azure Government,
+        /// <c>vault.azure.cn</c> for Azure China - alongside <see cref="AuthorityHost"/>. The
+        /// <c>SecretUri=</c> format carries its own host and is unaffected.
+        /// </remarks>
+        public string VaultDnsSuffix { get; set; } = "vault.azure.net";
+
+        /// <summary>
         /// Gets or sets whether a secret outside its validity period is rejected rather than used.
         /// Default is <c>false</c>, which logs a warning and uses the secret anyway.
         /// </summary>

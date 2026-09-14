@@ -21,6 +21,11 @@ namespace KeyVaultReferenceResolver
         private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
 
         /// <summary>
+        /// Key Vault DNS suffix for the Azure public cloud, used when none is configured.
+        /// </summary>
+        private const string DefaultVaultDnsSuffix = "vault.azure.net";
+
+        /// <summary>
         /// Pattern to match Key Vault references using SecretUri format.
         /// Supports format: @Microsoft.KeyVault(SecretUri=https://vault.vault.azure.net/secrets/secret-name)
         /// </summary>
@@ -160,7 +165,7 @@ namespace KeyVaultReferenceResolver
                         continue;
 
                     var found = false;
-                    foreach (var uri in EnumerateSecretUris(kvp.Value!))
+                    foreach (var uri in EnumerateSecretUris(kvp.Value!, options.VaultDnsSuffix))
                     {
                         distinctUris.Add(uri);
                         found = true;
@@ -183,7 +188,7 @@ namespace KeyVaultReferenceResolver
 
             foreach (var entry in referencingKeys)
             {
-                resolvedValues[entry.Key] = SubstituteReferences(entry.Value, secrets);
+                resolvedValues[entry.Key] = SubstituteReferences(entry.Value, secrets, options.VaultDnsSuffix);
             }
 
             builder.AddInMemoryCollection(resolvedValues);
@@ -204,13 +209,14 @@ namespace KeyVaultReferenceResolver
         /// </summary>
         private static string? SubstituteReferences(
             string originalValue,
-            IReadOnlyDictionary<string, string?> secrets)
+            IReadOnlyDictionary<string, string?> secrets,
+            string vaultDnsSuffix)
         {
             var failed = false;
 
             string Substitute(Match match)
             {
-                var uri = UriFromMatch(match);
+                var uri = UriFromMatch(match, vaultDnsSuffix);
                 if (uri != null && secrets.TryGetValue(uri, out var secret) && secret != null)
                     return secret;
 
@@ -246,7 +252,7 @@ namespace KeyVaultReferenceResolver
                 var tasks = distinctUris
                     .Select(uri => ResolveOneAsync(
                         uri, secretResolver, logger, resolved, failures, gate,
-                        referencingKeys, overallCts.Token))
+                        referencingKeys, options.VaultDnsSuffix, overallCts.Token))
                     .ToArray();
 
                 Task.WhenAll(tasks).GetAwaiter().GetResult();
@@ -266,6 +272,7 @@ namespace KeyVaultReferenceResolver
             ConcurrentQueue<KeyVaultReferenceResolutionException> failures,
             SemaphoreSlim gate,
             Dictionary<string, string> referencingKeys,
+            string vaultDnsSuffix,
             CancellationToken cancellationToken)
         {
             await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
@@ -288,7 +295,7 @@ namespace KeyVaultReferenceResolver
                 // "@Microsoft.KeyVault(SecretUri=...)" string and use it as a credential.
                 resolved[secretUri] = null;
 
-                var configKey = FirstKeyReferencing(secretUri, referencingKeys);
+                var configKey = FirstKeyReferencing(secretUri, referencingKeys, vaultDnsSuffix);
 
                 failures.Enqueue(new KeyVaultReferenceResolutionException(
                     $"Failed to resolve Key Vault reference for configuration key '{configKey}'",
@@ -312,11 +319,12 @@ namespace KeyVaultReferenceResolver
         /// </summary>
         private static string FirstKeyReferencing(
             string secretUri,
-            Dictionary<string, string> referencingKeys)
+            Dictionary<string, string> referencingKeys,
+            string vaultDnsSuffix)
         {
             foreach (var entry in referencingKeys)
             {
-                foreach (var uri in EnumerateSecretUris(entry.Value))
+                foreach (var uri in EnumerateSecretUris(entry.Value, vaultDnsSuffix))
                 {
                     if (string.Equals(uri, secretUri, StringComparison.Ordinal))
                         return entry.Key;
@@ -329,18 +337,18 @@ namespace KeyVaultReferenceResolver
         /// <summary>
         /// Enumerates the secret URIs referenced by a configuration value, in both formats.
         /// </summary>
-        private static IEnumerable<string> EnumerateSecretUris(string value)
+        private static IEnumerable<string> EnumerateSecretUris(string value, string vaultDnsSuffix)
         {
             foreach (Match match in SecretUriPattern.Matches(value))
             {
-                var uri = UriFromMatch(match);
+                var uri = UriFromMatch(match, vaultDnsSuffix);
                 if (uri != null)
                     yield return uri;
             }
 
             foreach (Match match in VaultNamePattern.Matches(value))
             {
-                var uri = UriFromMatch(match);
+                var uri = UriFromMatch(match, vaultDnsSuffix);
                 if (uri != null)
                     yield return uri;
             }
@@ -349,7 +357,7 @@ namespace KeyVaultReferenceResolver
         /// <summary>
         /// Builds the secret URI a single matched reference points at.
         /// </summary>
-        private static string? UriFromMatch(Match match)
+        private static string? UriFromMatch(Match match, string vaultDnsSuffix)
         {
             if (!match.Success)
                 return null;
@@ -362,9 +370,13 @@ namespace KeyVaultReferenceResolver
             var secretName = match.Groups["secret"].Value;
             var version = match.Groups["version"].Value;
 
+            var suffix = string.IsNullOrWhiteSpace(vaultDnsSuffix)
+                ? DefaultVaultDnsSuffix
+                : vaultDnsSuffix.TrimStart('.');
+
             // The patterns restrict every group to alphanumerics and hyphens, so nothing here
             // can alter the authority of the resulting URI.
-            var uri = $"https://{vaultName}.vault.azure.net/secrets/{secretName}";
+            var uri = $"https://{vaultName}.{suffix}/secrets/{secretName}";
             if (!string.IsNullOrEmpty(version))
                 uri += $"/{version}";
 
@@ -410,9 +422,10 @@ namespace KeyVaultReferenceResolver
             if (string.IsNullOrEmpty(value))
                 return null;
 
-            // SecretUri format takes precedence, matching the previous behaviour.
-            var uri = UriFromMatch(SecretUriPattern.Match(value!));
-            return uri ?? UriFromMatch(VaultNamePattern.Match(value!));
+            // SecretUri format takes precedence, matching the previous behaviour. This public
+            // entry point has no options, so the public-cloud suffix is used for VaultName.
+            var uri = UriFromMatch(SecretUriPattern.Match(value!), DefaultVaultDnsSuffix);
+            return uri ?? UriFromMatch(VaultNamePattern.Match(value!), DefaultVaultDnsSuffix);
         }
     }
 }
