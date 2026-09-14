@@ -7,12 +7,22 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+
+    # A protected environment gates the only job that can publish. Configure it with
+    # required reviewers and a tag-pattern deployment branch rule, so creating a release
+    # is not by itself sufficient to push a package to nuget.org.
+    environment: nuget-production
+
     permissions:
       packages: write
-      contents: read
+      # Needed to upload the SBOM as a release asset.
+      contents: write
       # Lets the job request the OIDC token that NuGet Trusted Publishing
       # exchanges for a short-lived API key. Without this the login step fails.
+      # The same token backs the build provenance attestation.
       id-token: write
+      # Lets the job record a provenance attestation against the published packages.
+      attestations: write
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -47,7 +57,7 @@ jobs:
             10.0.x
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore --locked-mode
 
       - name: Build
         run: dotnet build --no-restore -c Release
@@ -57,6 +67,41 @@ jobs:
 
       - name: Pack
         run: dotnet pack --no-build -c Release -o ./artifacts
+
+      # Provenance links each package to this repository, this workflow and this commit, so a
+      # consumer can verify with `gh attestation verify <file> --repo <owner>/<repo>` that the
+      # package on nuget.org was built here and not uploaded from somewhere else.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: "./artifacts/*.nupkg"
+
+      # An SBOM lets a consumer enumerate the transitive closure - Azure.Identity, VaultSharp
+      # and everything under them - without restoring the package themselves.
+      - name: Generate SBOM
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          dotnet tool restore
+          dotnet dotnet-CycloneDX KeyVaultReferenceResolver.sln \
+            --output ./sbom \
+            --filename KeyVaultReferenceResolver-sbom.cdx.json \
+            --output-format Json \
+            --exclude-test-projects \
+            --exclude-dev \
+            --set-version "$version"
+
+      - name: Attest SBOM
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: "./sbom/KeyVaultReferenceResolver-sbom.cdx.json"
+
+      - name: Attach SBOM to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" ./sbom/KeyVaultReferenceResolver-sbom.cdx.json --clobber
 
       # Trusted Publishing: exchange this job's OIDC token for a short-lived
       # nuget.org API key, so no long-lived secret is stored in the repo.

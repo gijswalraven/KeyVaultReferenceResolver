@@ -1,0 +1,26 @@
+# Code owners are requested for review automatically on every pull request.
+#
+# This only has teeth once branch protection on main requires review from code owners --
+# see CONTRIBUTING.md for the ruleset this repository expects.
+
+# Default owner for everything.
+*                       @gijswalraven
+
+# Security-sensitive surfaces. Called out separately so that a change here is visible as
+# such in the pull request, even though the owner is currently the same person.
+
+# The resolution path: credential selection, host and address validation, caching.
+/src/                   @gijswalraven
+
+# Anything that can publish a package, mint a token, or run with repository secrets.
+/.github/workflows/     @gijswalraven
+/.config/               @gijswalraven
+
+# Build and dependency policy: analyzers, warnings-as-errors, lock files, restore sources.
+/Directory.Build.props  @gijswalraven
+/tests/Directory.Build.props @gijswalraven
+/NuGet.config           @gijswalraven
+/global.json            @gijswalraven
+
+# Disclosure policy and supported versions.
+/SECURITY.md            @gijswalraven
