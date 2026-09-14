@@ -191,7 +191,9 @@ namespace KeyVaultReferenceResolver
                 resolvedValues[entry.Key] = SubstituteReferences(entry.Value, secrets, options.VaultDnsSuffix);
             }
 
-            builder.AddInMemoryCollection(resolvedValues);
+            // Not AddInMemoryCollection: this source detects, at Build time, that something was
+            // registered after it and would therefore override the secrets it just resolved.
+            builder.Add(new ResolvedSecretsSource(resolvedValues, logger));
 
             var succeeded = resolvedValues.Count(pair => pair.Value != null);
             Log.ResolutionSummary(logger, succeeded, resolvedValues.Count);
@@ -384,6 +386,68 @@ namespace KeyVaultReferenceResolver
         private static string MaskUri(string uri)
         {
             return KeyVaultReferenceResolutionException.MaskSecretUri(uri);
+        }
+
+        /// <summary>
+        /// Returns the configuration keys whose value still contains an unresolved Key Vault
+        /// reference.
+        /// </summary>
+        /// <param name="configuration">The built configuration to inspect.</param>
+        /// <returns>The offending keys, in configuration order. Empty when everything resolved.</returns>
+        /// <remarks>
+        /// References are resolved once, while the configuration is being built. A source
+        /// registered after <c>AddKeyVaultReferenceResolver</c>, or a reloading source that gains a
+        /// reference later, is therefore never resolved, and the application would read the literal
+        /// <c>@Microsoft.KeyVault(...)</c> string and use it as a credential. This is the check for
+        /// that; <see cref="AssertNoUnresolvedReferences"/> turns it into a startup failure.
+        /// </remarks>
+        public static IReadOnlyList<string> FindUnresolvedReferences(this IConfiguration configuration)
+        {
+            if (configuration == null)
+                throw new ArgumentNullException(nameof(configuration));
+
+            var unresolved = new List<string>();
+
+            foreach (var kvp in configuration.AsEnumerable())
+            {
+                if (!string.IsNullOrEmpty(kvp.Value) && IsKeyVaultReference(kvp.Value))
+                    unresolved.Add(kvp.Key);
+            }
+
+            return unresolved;
+        }
+
+        /// <summary>
+        /// Throws if any configuration value still contains an unresolved Key Vault reference.
+        /// </summary>
+        /// <param name="configuration">The built configuration to inspect.</param>
+        /// <param name="logger">Optional logger; each offending key is logged before throwing.</param>
+        /// <exception cref="KeyVaultReferenceResolutionException">
+        /// Thrown when at least one value still holds a reference.
+        /// </exception>
+        /// <remarks>
+        /// Call this immediately after <c>Build()</c>, so that a misconfiguration fails at startup
+        /// rather than when the credential is first used against a downstream service - where it
+        /// surfaces as an unrelated authentication error. The key names are included in the message
+        /// but the reference values are not.
+        /// </remarks>
+        public static void AssertNoUnresolvedReferences(this IConfiguration configuration, ILogger? logger = null)
+        {
+            var unresolved = configuration.FindUnresolvedReferences();
+            if (unresolved.Count == 0)
+                return;
+
+            if (logger != null)
+            {
+                foreach (var key in unresolved)
+                    Log.UnresolvedReference(logger, key);
+            }
+
+            throw new KeyVaultReferenceResolutionException(
+                "Configuration still contains unresolved Key Vault reference(s) for: " +
+                string.Join(", ", unresolved) +
+                ". Register AddKeyVaultReferenceResolver after every other configuration source; " +
+                "references added by a source registered later, or by a reloading source, are not resolved.");
         }
 
         /// <summary>

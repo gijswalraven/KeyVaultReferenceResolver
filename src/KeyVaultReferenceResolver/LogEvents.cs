@@ -30,6 +30,12 @@ namespace KeyVaultReferenceResolver
         /// <summary>Numeric ID of <see cref="ResolutionSummary"/>.</summary>
         public const int ResolutionSummaryId = 1004;
 
+        /// <summary>Numeric ID of <see cref="ResolverNotLastSource"/>.</summary>
+        public const int ResolverNotLastSourceId = 1005;
+
+        /// <summary>Numeric ID of <see cref="UnresolvedReference"/>.</summary>
+        public const int UnresolvedReferenceId = 1006;
+
         /// <summary>Numeric ID of <see cref="SecretExpired"/>.</summary>
         public const int SecretExpiredId = 1101;
 
@@ -62,6 +68,20 @@ namespace KeyVaultReferenceResolver
 
         /// <summary>A secret before its NotBefore was used anyway. Warning.</summary>
         public static readonly EventId SecretNotYetValid = new EventId(SecretNotYetValidId, nameof(SecretNotYetValid));
+
+        /// <summary>
+        /// A configuration source was registered after the resolver, so it overrides the resolved
+        /// secrets and is itself never resolved. Error.
+        /// </summary>
+        /// <remarks>
+        /// If such a source holds the same key still carrying a literal reference, the application
+        /// reads the <c>@Microsoft.KeyVault(...)</c> string and uses it as a credential. Register
+        /// the resolver last.
+        /// </remarks>
+        public static readonly EventId ResolverNotLastSource = new EventId(ResolverNotLastSourceId, nameof(ResolverNotLastSource));
+
+        /// <summary>A configuration value still holds an unresolved Key Vault reference. Error.</summary>
+        public static readonly EventId UnresolvedReference = new EventId(UnresolvedReferenceId, nameof(UnresolvedReference));
 
         /// <summary>A secret was served from the in-memory cache. Debug.</summary>
         public static readonly EventId CacheHit = new EventId(CacheHitId, nameof(CacheHit));

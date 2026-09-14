@@ -64,6 +64,20 @@ namespace KeyVaultReferenceResolver
         public static partial void ResolutionFailed(ILogger logger, Exception exception, string configKey);
 
         [LoggerMessage(
+            EventId = LogEvents.ResolverNotLastSourceId,
+            Level = LogLevel.Error,
+            Message = "{Count} configuration source(s) were registered after the Key Vault reference resolver. " +
+                      "They override the resolved secrets and are never themselves resolved, so a reference in " +
+                      "one of them reaches the application as a literal string. Register the resolver last.")]
+        public static partial void ResolverNotLastSource(ILogger logger, int count);
+
+        [LoggerMessage(
+            EventId = LogEvents.UnresolvedReferenceId,
+            Level = LogLevel.Error,
+            Message = "Configuration key '{ConfigKey}' still holds an unresolved Key Vault reference")]
+        public static partial void UnresolvedReference(ILogger logger, string configKey);
+
+        [LoggerMessage(
             EventId = LogEvents.ResolutionSummaryId,
             Level = LogLevel.Information,
             Message = "Resolved {Count} of {Total} configuration value(s) containing Key Vault reference(s)")]

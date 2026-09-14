@@ -116,7 +116,9 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
             if (resolvedValues.Count > 0)
             {
-                builder.AddInMemoryCollection(resolvedValues);
+                // Not AddInMemoryCollection: this source detects, at Build time, that something
+                // was registered after it and would override the secrets it just resolved.
+                builder.Add(new ResolvedVaultSecretsSource(resolvedValues, logger));
 
                 var succeeded = resolvedValues.Count(pair => pair.Value != null);
                 HashiCorpLog.ResolutionSummary(logger, succeeded, resolvedValues.Count);
@@ -195,6 +197,59 @@ namespace KeyVaultReferenceResolver.HashiCorp
             {
                 gate.Release();
             }
+        }
+
+        /// <summary>
+        /// Returns the configuration keys whose value still contains an unresolved Vault reference.
+        /// </summary>
+        /// <param name="configuration">The built configuration to inspect.</param>
+        /// <returns>The offending keys, in configuration order. Empty when everything resolved.</returns>
+        public static IReadOnlyList<string> FindUnresolvedVaultReferences(this IConfiguration configuration)
+        {
+            if (configuration == null)
+                throw new ArgumentNullException(nameof(configuration));
+
+            var unresolved = new List<string>();
+
+            foreach (var kvp in configuration.AsEnumerable())
+            {
+                if (!string.IsNullOrEmpty(kvp.Value) && IsHashiCorpVaultReference(kvp.Value))
+                    unresolved.Add(kvp.Key);
+            }
+
+            return unresolved;
+        }
+
+        /// <summary>
+        /// Throws if any configuration value still contains an unresolved Vault reference.
+        /// </summary>
+        /// <param name="configuration">The built configuration to inspect.</param>
+        /// <param name="logger">Optional logger; each offending key is logged before throwing.</param>
+        /// <exception cref="HashiCorpVaultReferenceResolutionException">
+        /// Thrown when at least one value still holds a reference.
+        /// </exception>
+        /// <remarks>
+        /// Call this immediately after <c>Build()</c>. References are resolved once while the
+        /// configuration is built, so a source registered after the resolver - or a reloading
+        /// source that gains a reference later - is never resolved, and the literal
+        /// <c>@HashiCorp.Vault(...)</c> string would be used as a credential.
+        /// </remarks>
+        public static void AssertNoUnresolvedVaultReferences(this IConfiguration configuration, ILogger? logger = null)
+        {
+            var unresolved = configuration.FindUnresolvedVaultReferences();
+            if (unresolved.Count == 0)
+                return;
+
+            if (logger != null)
+            {
+                foreach (var key in unresolved)
+                    HashiCorpLog.UnresolvedReference(logger, key);
+            }
+
+            throw new HashiCorpVaultReferenceResolutionException(
+                "Configuration still contains unresolved HashiCorp Vault reference(s) for: " +
+                string.Join(", ", unresolved) +
+                ". Register AddHashiCorpVaultResolver after every other configuration source.");
         }
 
         /// <summary>

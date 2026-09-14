@@ -32,6 +32,12 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// <summary>Numeric ID of <see cref="KvVersionProbe"/>.</summary>
         public const int KvVersionProbeId = 2005;
 
+        /// <summary>Numeric ID of <see cref="ResolverNotLastSource"/>.</summary>
+        public const int ResolverNotLastSourceId = 2006;
+
+        /// <summary>Numeric ID of <see cref="UnresolvedReference"/>.</summary>
+        public const int UnresolvedReferenceId = 2007;
+
         /// <summary>Numeric ID of <see cref="AuthMethodSelected"/>.</summary>
         public const int AuthMethodSelectedId = 2101;
 
@@ -76,6 +82,15 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// into a failure.
         /// </remarks>
         public static readonly EventId VaultAddressUnverified = new EventId(VaultAddressUnverifiedId, nameof(VaultAddressUnverified));
+
+        /// <summary>
+        /// A configuration source was registered after the resolver, so it overrides the resolved
+        /// secrets and is itself never resolved. Error.
+        /// </summary>
+        public static readonly EventId ResolverNotLastSource = new EventId(ResolverNotLastSourceId, nameof(ResolverNotLastSource));
+
+        /// <summary>A configuration value still holds an unresolved Vault reference. Error.</summary>
+        public static readonly EventId UnresolvedReference = new EventId(UnresolvedReferenceId, nameof(UnresolvedReference));
 
         /// <summary>A secret was served from the in-memory cache. Debug.</summary>
         public static readonly EventId CacheHit = new EventId(CacheHitId, nameof(CacheHit));

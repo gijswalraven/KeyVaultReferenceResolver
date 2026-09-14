@@ -51,6 +51,21 @@ namespace KeyVaultReferenceResolver.HashiCorp
         public static partial void ResolutionFailed(ILogger logger, Exception exception, string configKey);
 
         [LoggerMessage(
+            EventId = HashiCorpLogEvents.ResolverNotLastSourceId,
+            Level = LogLevel.Error,
+            Message = "{Count} configuration source(s) were registered after the HashiCorp Vault reference " +
+                      "resolver. They override the resolved secrets and are never themselves resolved, so a " +
+                      "reference in one of them reaches the application as a literal string. Register the " +
+                      "resolver last.")]
+        public static partial void ResolverNotLastSource(ILogger logger, int count);
+
+        [LoggerMessage(
+            EventId = HashiCorpLogEvents.UnresolvedReferenceId,
+            Level = LogLevel.Error,
+            Message = "Configuration key {ConfigKey} still holds an unresolved HashiCorp Vault reference")]
+        public static partial void UnresolvedReference(ILogger logger, string configKey);
+
+        [LoggerMessage(
             EventId = HashiCorpLogEvents.ResolutionSummaryId,
             Level = LogLevel.Information,
             Message = "Resolved {Count} of {Total} HashiCorp Vault reference(s)")]
