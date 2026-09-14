@@ -1,0 +1,205 @@
+{
+  "output": {
+    "type": "single"
+  },
+  "subjects": [
+    {
+      "name": "Architecture-Overview",
+      "folder": "Architecture",
+      "description": "Solution layout, the two packages, layering, dependencies and the end-to-end resolution flow",
+      "filePatterns": [
+        "src/**/*.csproj",
+        "src/KeyVaultReferenceResolver/ISecretResolver.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultReferenceExtensions.cs",
+        "KeyVaultReferenceResolver.sln",
+        "global.json"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Explain the overall architecture: the two NuGet packages, the ISecretResolver seam, how the IConfigurationBuilder extension orchestrates resolution, the netstandard2.0 target and the dependency set."
+    },
+    {
+      "name": "Secret-Resolution-Pipeline",
+      "folder": "Architecture",
+      "description": "The configuration-build-time pipeline: discovery, deduplication, bounded-concurrency fetch, substitution and fail-closed behaviour",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultReferenceExtensions.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document the resolution pipeline stage by stage, the temp-configuration probe and its disposal, URI deduplication, the SemaphoreSlim gate, the OverallTimeout budget, reference substitution and the fail-closed null contract. Contrast the Azure and HashiCorp implementations."
+    },
+    {
+      "name": "Security-Model",
+      "folder": "Architecture",
+      "description": "Threat model and the defences: fail-closed resolution, host and address allowlisting, secret masking, credential-chain hardening, ReDoS bounds and transport rules",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolutionException.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultReferenceResolutionException.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultResolverOptions.cs",
+        "SECURITY.md"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document the threat model and every control: fail-closed resolution, vault host suffix allowlist, Vault address pinning, secret-URI masking in logs and exception properties, DefaultAzureCredential hardening, Azure SDK content logging suppression, regex timeouts, path/key validation and HTTPS enforcement. State explicitly what the library does not protect against."
+    },
+    {
+      "name": "Reference-Formats",
+      "folder": "Features",
+      "description": "The four supported reference syntaxes, embedded and multiple references in one value, and the parsing rules that constrain them",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultSecretResolver.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document every reference format with the exact regex constraints, how VaultName references become URIs via VaultDnsSuffix, embedded/multi-reference substitution, and the public IsKeyVaultReference / ExtractSecretUri / ExtractSecretInfo helpers."
+    },
+    {
+      "name": "Azure-Key-Vault-Provider",
+      "folder": "Features",
+      "description": "KeyVaultSecretResolver: URI parsing, SecretClient reuse, credential construction, timeouts and error mapping",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver/ISecretResolver.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document the Azure Key Vault resolver: secret URI parsing and validation, per-vault SecretClient caching, DefaultAzureCredential construction from options, per-secret timeout, RequestFailedException status mapping to actionable messages, and disposal semantics."
+    },
+    {
+      "name": "HashiCorp-Vault-Provider",
+      "folder": "Features",
+      "description": "HashiCorpVaultSecretResolver: reference parsing, mount/path splitting, KV v1 vs v2 probing, re-authentication and address trust",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultResolverOptions.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document the HashiCorp Vault resolver: mount path splitting, KV v2-then-v1 probing and why sys/mounts is not read, the single re-authentication retry on 401/403, VaultSharp's lack of CancellationToken support and the VaultServiceTimeout workaround, Vault namespaces, and trusted-address resolution."
+    },
+    {
+      "name": "Vault-Authentication-Methods",
+      "folder": "Features",
+      "description": "HashiCorp auth methods (Token, AppRole, Kubernetes) with auto-detection order, and the Azure credential chain",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver.HashiCorp/Authentication/*.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultResolverOptions.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document IVaultAuthMethod and its three implementations, the environment-variable auto-detection order and its hazards, Kubernetes projected-token re-reading, and the Azure-side DefaultAzureCredential exclusions."
+    },
+    {
+      "name": "Secret-Caching-And-Rotation",
+      "folder": "Features",
+      "description": "The in-memory cache, TTL semantics, forceRefresh, InvalidateCache, and why IConfiguration values do not change after startup",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultResolverOptions.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document the CacheEntry design, the infinite default TTL and its rationale, on-demand refresh patterns, and the hard boundary between resolver cache and already-materialised IConfiguration values."
+    },
+    {
+      "name": "Secret-Validity-Enforcement",
+      "folder": "Features",
+      "description": "NotBefore and ExpiresOn handling: warnings, the expiry warning threshold and optional hard rejection",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "src/KeyVaultReferenceResolver/LogEvents.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document why Key Vault secret expiry is advisory, how CheckValidityPeriod enforces it at the consumer, the ExpiryWarningThreshold, RejectSecretsOutsideValidityPeriod, and the compliance angle (CIS expiration controls)."
+    },
+    {
+      "name": "Configuration-Reference",
+      "folder": "Deployment",
+      "description": "Every option on both option classes, defaults, validation rules and the environment variables that are read",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultResolverOptions.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Produce a complete option-by-option reference for both packages with type, default, effect and recommended production value, plus Validate() rules and all environment variables consumed."
+    },
+    {
+      "name": "Environment-Deployment-Guide",
+      "folder": "Deployment",
+      "description": "Per-host deployment recipes: App Service, Functions, AKS, containers, local development and sovereign clouds",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultResolverOptions.cs",
+        "README.md"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Give prerequisites and a concrete recommended option set per hosting environment, the required vault permissions, sovereign-cloud configuration, and the minimum HashiCorp Vault policy."
+    },
+    {
+      "name": "Logging-And-Monitoring",
+      "folder": "Operations",
+      "description": "Event IDs, log levels, what each record contains, and the log-based controls worth alerting on",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/LogEvents.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpLogEvents.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultSecretResolver.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document every EventId with its level, message template and structured fields, the deliberate level split that keeps secret names out of aggregated stores, and suggested alert rules and dashboards."
+    },
+    {
+      "name": "Troubleshooting-Guide",
+      "folder": "Operations",
+      "description": "Symptom-to-cause table for every failure the library raises, with the exception types and remedies",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultResolverOptions.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Build a symptom-to-cause runbook: every exception message and status mapping, null configuration values, timeouts, throttling, auth auto-detection surprises, KV version mismatches and host/address rejections."
+    },
+    {
+      "name": "Local-Setup-And-Testing",
+      "folder": "Development",
+      "description": "Building the solution, running the xunit.v3 suites, and the testing conventions including MockSecretResolver",
+      "filePatterns": [
+        "global.json",
+        "Directory.Build.props",
+        "tests/Directory.Build.props",
+        "NuGet.config",
+        "CONTRIBUTING.md",
+        "tests/**/*.csproj",
+        "tests/**/*.cs",
+        "src/KeyVaultReferenceResolver/MockSecretResolver.cs",
+        "CLAUDE.md"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document the SDK floor and why, build/test commands, the xunit.v3 + Microsoft.Testing.Platform setup, the VaultEnvironment non-parallel collection, MockSecretResolver usage and its production hazards."
+    },
+    {
+      "name": "Release-And-Publishing",
+      "folder": "Development",
+      "description": "CI workflows, dependency auditing, version lockstep and NuGet Trusted Publishing",
+      "filePatterns": [
+        ".github/workflows/*.yml",
+        ".github/dependabot.yml",
+        ".github/CODEOWNERS",
+        ".config/dotnet-tools.json",
+        "NuGet.config",
+        "Directory.Build.props",
+        "CONTRIBUTING.md",
+        "src/**/*.csproj",
+        "CHANGELOG.md"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Document the CI, CodeQL and release pipelines, SHA-pinned actions, the vulnerable-dependency gate, the tag/version check, OIDC Trusted Publishing, and the requirement that both package versions move together."
+    }
+  ]
+}
