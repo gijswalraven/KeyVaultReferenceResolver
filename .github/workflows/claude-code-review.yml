@@ -12,11 +12,15 @@ on:
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    # Dependabot pull requests run with a read-only token and no access to repository
+    # secrets, so claude_code_oauth_token arrives empty and the action fails every time.
+    # That put a permanently red check on every dependency bump, which is worse than no
+    # check at all: a failure that is always there stops being read.
+    #
+    # Nothing is lost by skipping them. The diff is a pinned SHA and a version comment;
+    # what actually needs verifying is whether the bumped action still works, and that is
+    # what the build, CodeQL and Analyze checks do.
+    if: github.actor != 'dependabot[bot]'
 
     runs-on: ubuntu-latest
     permissions:
