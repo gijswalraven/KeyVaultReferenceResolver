@@ -82,7 +82,6 @@ namespace KeyVaultReferenceResolver
             }
 
             var (vaultUri, secretName, version) = ParseSecretUri(secretUri);
-            var client = GetOrCreateClient(vaultUri);
 
             using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
@@ -93,13 +92,12 @@ namespace KeyVaultReferenceResolver
                 {
                     Log.ResolvingSecret(_logger, secretName, vaultUri);
 
-                    var response = string.IsNullOrEmpty(version)
-                        ? await client.GetSecretAsync(secretName, cancellationToken: cts.Token).ConfigureAwait(false)
-                        : await client.GetSecretAsync(secretName, version, cts.Token).ConfigureAwait(false);
+                    var secret = await FetchSecretAsync(vaultUri, secretName, version, cts.Token)
+                        .ConfigureAwait(false);
 
-                    CheckValidityPeriod(response.Value, secretUri);
+                    CheckValidityPeriod(secret, secretUri);
 
-                    var secretValue = response.Value.Value;
+                    var secretValue = secret.Value;
 
                     // Cache the resolved secret
                     if (_options.EnableCaching)
@@ -254,6 +252,35 @@ namespace KeyVaultReferenceResolver
                     Format(expiresOn),
                     _options.ExpiryWarningThreshold);
             }
+        }
+
+        /// <summary>
+        /// Fetches a secret from Key Vault. This is the only member that talks to the network.
+        /// </summary>
+        /// <param name="vaultUri">The validated vault URI.</param>
+        /// <param name="secretName">The secret name.</param>
+        /// <param name="version">The secret version, or null for the current version.</param>
+        /// <param name="cancellationToken">Cancellation token, already carrying the per-secret timeout.</param>
+        /// <returns>The retrieved secret, including its properties.</returns>
+        /// <remarks>
+        /// Overridable so that the surrounding behaviour - caching, TTL expiry, forced refresh,
+        /// validity-period handling - can be exercised by tests without a live vault. Everything
+        /// reachable only through a network call would otherwise be untested, which for a
+        /// credential cache is the part most worth testing. Callers should not need to override it.
+        /// </remarks>
+        protected virtual async Task<KeyVaultSecret> FetchSecretAsync(
+            Uri vaultUri,
+            string secretName,
+            string? version,
+            CancellationToken cancellationToken)
+        {
+            var client = GetOrCreateClient(vaultUri);
+
+            var response = string.IsNullOrEmpty(version)
+                ? await client.GetSecretAsync(secretName, cancellationToken: cancellationToken).ConfigureAwait(false)
+                : await client.GetSecretAsync(secretName, version, cancellationToken).ConfigureAwait(false);
+
+            return response.Value;
         }
 
         /// <summary>
