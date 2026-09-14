@@ -48,10 +48,14 @@ long-term support branch.
 
 | Package | Version | Supported |
 | --- | --- | --- |
-| KeyVaultReferenceResolver | 2.x | Yes |
-| KeyVaultReferenceResolver | 1.x | No - upgrade to 2.x |
-| KeyVaultReferenceResolver.HashiCorp | 2.x | Yes |
-| KeyVaultReferenceResolver.HashiCorp | 1.x | No - upgrade to 2.x |
+| KeyVaultReferenceResolver | 1.3.x | Yes |
+| KeyVaultReferenceResolver | 1.2.x and earlier | No - upgrade to 1.3.x |
+| KeyVaultReferenceResolver.HashiCorp | 1.3.x | Yes |
+| KeyVaultReferenceResolver.HashiCorp | 1.1.x | No - upgrade to 1.3.x |
+
+Every fix listed in the 1.3.0 release notes is a security fix. Versions below 1.3.0
+contain all of them unpatched, including the fail-open resolution path and the missing
+vault host validation, so upgrading is the remediation.
 
 ## Scope
 

@@ -10,11 +10,14 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
-## [2.0.0]
+## [1.3.0]
 
 Security release. Every item under `Security` was found by a review of the
-resolution path in both packages; several change behaviour, so this is a major
-version.
+resolution path in both packages.
+
+> **Read the Breaking behaviour changes section before upgrading.** Three changes
+> alter runtime behaviour for existing consumers. No public signature changed, so
+> the upgrade recompiles cleanly and the differences surface at run time.
 
 ### Security
 
@@ -199,7 +202,7 @@ version.
   separate `.Testing` package, which would need its own nuget.org Trusted
   Publishing policy. It is hidden from IntelliSense and documented as test-only.
 
-### Upgrading from 1.x
+### Breaking behaviour changes, and how to upgrade
 
 1. If you set `ThrowOnResolveFailure = false`, handle `null` where you
    previously received the literal reference string.
@@ -232,8 +235,8 @@ version.
 - Initial release: resolve `@Microsoft.KeyVault(SecretUri=...)` references in
   `Microsoft.Extensions.Configuration` anywhere, not just Azure App Service.
 
-[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...HEAD
-[2.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.2.0...v2.0.0
+[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/releases/tag/v1.0.0

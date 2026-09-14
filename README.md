@@ -1,6 +1,6 @@
 # 🔐 KeyVaultReferenceResolver
 
-[![NuGet](https://img.shields.io/badge/nuget-v2.0.0-blue.svg)](https://www.nuget.org/packages/KeyVaultReferenceResolver)
+[![NuGet](https://img.shields.io/badge/nuget-v1.3.0-blue.svg)](https://www.nuget.org/packages/KeyVaultReferenceResolver)
 [![.NET](https://img.shields.io/badge/.NET%20Standard-2.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -631,7 +631,7 @@ carries a build provenance attestation plus a CycloneDX SBOM. To confirm a packa
 built from this repository rather than uploaded from elsewhere:
 
 ```bash
-gh attestation verify KeyVaultReferenceResolver.2.0.0.nupkg \
+gh attestation verify KeyVaultReferenceResolver.1.3.0.nupkg \
   --repo gijswalraven/KeyVaultReferenceResolver
 ```
 
