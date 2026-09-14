@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -77,10 +81,11 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 throw new ArgumentNullException(nameof(secretResolver));
 
             options = options ?? new HashiCorpVaultResolverOptions();
+            options.Validate();
             logger = logger ?? NullLogger.Instance;
 
             var tempConfig = builder.Build();
-            var resolvedValues = new Dictionary<string, string?>();
+            var references = new List<KeyValuePair<string, string>>();
 
             foreach (var kvp in tempConfig.AsEnumerable())
             {
@@ -90,34 +95,100 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 if (!HashiCorpVaultSecretResolver.IsHashiCorpVaultReference(kvp.Value))
                     continue;
 
-                try
-                {
-                    var secretValue = secretResolver.ResolveSecret(kvp.Value);
-                    resolvedValues[kvp.Key] = secretValue;
-                    logger.LogInformation("Resolved HashiCorp Vault reference: {ConfigKey}", kvp.Key);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Failed to resolve HashiCorp Vault reference for '{ConfigKey}'", kvp.Key);
-
-                    if (options.ThrowOnResolveFailure)
-                    {
-                        throw new HashiCorpVaultReferenceResolutionException(
-                            $"Failed to resolve HashiCorp Vault reference for configuration key '{kvp.Key}'",
-                            kvp.Key,
-                            kvp.Value,
-                            ex);
-                    }
-                }
+                references.Add(new KeyValuePair<string, string>(kvp.Key, kvp.Value!));
             }
+
+            if (references.Count == 0)
+                return builder;
+
+            var resolvedValues = ResolveReferences(references, secretResolver, options, logger);
 
             if (resolvedValues.Count > 0)
             {
                 builder.AddInMemoryCollection(resolvedValues);
-                logger.LogInformation("Resolved {Count} HashiCorp Vault reference(s)", resolvedValues.Count);
+
+                var succeeded = resolvedValues.Count(pair => pair.Value != null);
+                logger.LogInformation(
+                    "Resolved {Count} of {Total} HashiCorp Vault reference(s)",
+                    succeeded,
+                    resolvedValues.Count);
             }
 
             return builder;
+        }
+
+        /// <summary>
+        /// Resolves every reference with bounded concurrency under one overall time budget.
+        /// </summary>
+        private static Dictionary<string, string?> ResolveReferences(
+            List<KeyValuePair<string, string>> references,
+            ISecretResolver secretResolver,
+            HashiCorpVaultResolverOptions options,
+            ILogger logger)
+        {
+            var resolved = new ConcurrentDictionary<string, string?>();
+            var failures = new ConcurrentQueue<HashiCorpVaultReferenceResolutionException>();
+
+            using (var overallCts = new CancellationTokenSource())
+            using (var gate = new SemaphoreSlim(options.MaxConcurrency))
+            {
+                if (options.OverallTimeout != Timeout.InfiniteTimeSpan)
+                    overallCts.CancelAfter(options.OverallTimeout);
+
+                var tasks = references
+                    .Select(reference => ResolveOneAsync(
+                        reference, secretResolver, logger, resolved, failures, gate, overallCts.Token))
+                    .ToArray();
+
+                Task.WhenAll(tasks).GetAwaiter().GetResult();
+            }
+
+            if (options.ThrowOnResolveFailure && failures.TryDequeue(out var firstFailure))
+                throw firstFailure;
+
+            return new Dictionary<string, string?>(resolved);
+        }
+
+        private static async Task ResolveOneAsync(
+            KeyValuePair<string, string> reference,
+            ISecretResolver secretResolver,
+            ILogger logger,
+            ConcurrentDictionary<string, string?> resolved,
+            ConcurrentQueue<HashiCorpVaultReferenceResolutionException> failures,
+            SemaphoreSlim gate,
+            CancellationToken cancellationToken)
+        {
+            await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                var secretValue = await secretResolver
+                    .ResolveSecretAsync(reference.Value, cancellationToken)
+                    .ConfigureAwait(false);
+
+                resolved[reference.Key] = secretValue;
+                logger.LogInformation("Resolved HashiCorp Vault reference: {ConfigKey}", reference.Key);
+            }
+            catch (Exception ex)
+            {
+                // Fail closed. Leaving the key unset would let the application read the literal
+                // "@HashiCorp.Vault(...)" string and use it as a credential.
+                resolved[reference.Key] = null;
+
+                failures.Enqueue(new HashiCorpVaultReferenceResolutionException(
+                    $"Failed to resolve HashiCorp Vault reference for configuration key '{reference.Key}'",
+                    reference.Key,
+                    reference.Value,
+                    ex));
+
+                logger.LogError(
+                    ex,
+                    "Failed to resolve HashiCorp Vault reference for '{ConfigKey}'; the value has been set to null",
+                    reference.Key);
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
 
         /// <summary>
