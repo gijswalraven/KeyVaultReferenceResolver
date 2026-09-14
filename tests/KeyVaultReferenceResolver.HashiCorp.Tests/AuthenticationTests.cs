@@ -4,6 +4,7 @@ using Xunit;
 
 namespace KeyVaultReferenceResolver.HashiCorp.Tests
 {
+    [Collection("VaultEnvironment")]
     public class AuthenticationTests
     {
         #region TokenAuthMethod Tests

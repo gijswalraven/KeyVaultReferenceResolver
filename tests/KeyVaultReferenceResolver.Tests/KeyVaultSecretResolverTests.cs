@@ -72,7 +72,7 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(null!);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(null!, TestContext.Current.CancellationToken);
 
         // Assert
         var ex = await Assert.ThrowsAsync<ArgumentException>(act);
@@ -86,7 +86,7 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(string.Empty);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(string.Empty, TestContext.Current.CancellationToken);
 
         // Assert
         var ex = await Assert.ThrowsAsync<ArgumentException>(act);
@@ -100,7 +100,7 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync("   ");
+        Func<Task> act = async () => await resolver.ResolveSecretAsync("   ", TestContext.Current.CancellationToken);
 
         // Assert
         var ex = await Assert.ThrowsAsync<ArgumentException>(act);
@@ -114,7 +114,7 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync("not-a-valid-uri");
+        Func<Task> act = async () => await resolver.ResolveSecretAsync("not-a-valid-uri", TestContext.Current.CancellationToken);
 
         // Assert
         await Assert.ThrowsAsync<UriFormatException>(act);
@@ -128,7 +128,7 @@ public class KeyVaultSecretResolverTests
         var uri = "https://myvault.vault.azure.net/keys/my-key";
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri, TestContext.Current.CancellationToken);
 
         // Assert
         var ex = await Assert.ThrowsAsync<ArgumentException>(act);
@@ -144,7 +144,7 @@ public class KeyVaultSecretResolverTests
         var uri = "https://myvault.vault.azure.net/invalid/path";
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri, TestContext.Current.CancellationToken);
 
         // Assert
         var ex = await Assert.ThrowsAsync<ArgumentException>(act);
@@ -160,7 +160,7 @@ public class KeyVaultSecretResolverTests
         var uri = "https://myvault.vault.azure.net/secrets";
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri, TestContext.Current.CancellationToken);
 
         // Assert
         var ex = await Assert.ThrowsAsync<ArgumentException>(act);

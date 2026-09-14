@@ -166,7 +166,7 @@ public class MockSecretResolverTests
             .AddSecret(TestSecretUri1, TestSecretValue1);
 
         // Act
-        var result = await resolver.ResolveSecretAsync(TestSecretUri1);
+        var result = await resolver.ResolveSecretAsync(TestSecretUri1, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(TestSecretValue1, result);
@@ -179,7 +179,7 @@ public class MockSecretResolverTests
         var resolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(TestSecretUri1);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(TestSecretUri1, TestContext.Current.CancellationToken);
 
         // Assert
         var ex = await Assert.ThrowsAsync<KeyNotFoundException>(act);
