@@ -161,15 +161,43 @@ version.
   different output — though that behaviour produced malformed connection
   strings, so it is unlikely to have been depended on deliberately.
 
-### CI
+### CI and supply chain
 
 - All GitHub Actions pinned to commit SHAs; `permissions: contents: read` on
   CI; `persist-credentials: false` on checkouts that do not push.
 - `claude.yml` gated on `author_association`; `id-token: write` removed from
   both Claude workflows.
 - CI fails on vulnerable direct or transitive packages.
-- Added CodeQL (`security-extended`) and Dependabot for `nuget` and
-  `github-actions`.
+- Added CodeQL (`security-extended`), Dependabot for `nuget` and
+  `github-actions`, and an OpenSSF Scorecard workflow.
+- **Build provenance attestation** over the packages and the SBOM. Verify with
+  `gh attestation verify <file> --repo gijswalraven/KeyVaultReferenceResolver`.
+- **CycloneDX SBOM** (spec 1.7) attached to each release, generated from a
+  version-pinned tool manifest, with the component version taken from the
+  release tag.
+- The publish job runs in a protected `nuget-production` environment. **This
+  still needs configuring in repository settings** with required reviewers.
+- `NuGet.config` clears inherited restore sources and pins them to nuget.org
+  with package source mapping, so a private feed cannot enter the resolution
+  path. CI and release restore with `--locked-mode` against committed
+  `packages.lock.json` files.
+- Analyzers enabled repo-wide via `Directory.Build.props` with
+  warnings-as-errors in Release, `NuGetAuditMode=all`, and
+  `ContinuousIntegrationBuild` on CI for path-normalised PDBs.
+- Both packages now declare a real supplier in `Authors`/`Company` rather than
+  a placeholder, so generated SBOMs carry an identifying supplier name.
+- Added `CONTRIBUTING.md` and `CODEOWNERS`.
+
+### Known gaps
+
+- **NuGet author signing** is not configured; it needs a code-signing
+  certificate. Trusted Publishing plus provenance attestation are the integrity
+  controls in the meantime.
+- **Branch protection on `main`** is repository configuration rather than a
+  file. `CONTRIBUTING.md` documents the ruleset the project expects.
+- `MockSecretResolver` still ships inside the main package rather than a
+  separate `.Testing` package, which would need its own nuget.org Trusted
+  Publishing policy. It is hidden from IntelliSense and documented as test-only.
 
 ### Upgrading from 1.x
 
