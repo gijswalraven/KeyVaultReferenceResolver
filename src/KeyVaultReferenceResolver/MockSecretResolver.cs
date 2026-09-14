@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,19 +10,44 @@ namespace KeyVaultReferenceResolver
     /// <summary>
     /// A mock implementation of <see cref="ISecretResolver"/> for testing purposes.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Test use only. Never register this in an application that runs in production.</b>
+    /// </para>
+    /// <para>
+    /// It ships inside the main package for convenience, so a dependency-injection or
+    /// configuration mistake can wire it into a real application with no compile-time signal.
+    /// With <c>throwOnMissing: false</c> it returns an empty string for every secret it does not
+    /// know, which means an application would start with empty passwords and API keys rather than
+    /// failing - so guard the registration with an environment check, and prefer
+    /// <c>throwOnMissing: true</c> (the default) so a missing secret is loud.
+    /// </para>
+    /// <para>
+    /// Hidden from IntelliSense to reduce the chance of it being reached for by accident.
+    /// </para>
+    /// </remarks>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public class MockSecretResolver : ISecretResolver
     {
-        private readonly Dictionary<string, string> _secrets;
+        private readonly ConcurrentDictionary<string, string> _secrets;
         private readonly bool _throwOnMissing;
 
         /// <summary>
         /// Creates a new instance of <see cref="MockSecretResolver"/>.
         /// </summary>
         /// <param name="secrets">Dictionary mapping secret URIs to their values.</param>
-        /// <param name="throwOnMissing">If true, throws KeyNotFoundException when a secret is not found. Default is true.</param>
+        /// <param name="throwOnMissing">
+        /// If true, throws KeyNotFoundException when a secret is not found. Default is true.
+        /// Setting it to false returns an empty string instead, which hides missing secrets.
+        /// </param>
         public MockSecretResolver(Dictionary<string, string> secrets, bool throwOnMissing = true)
         {
-            _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
+            if (secrets == null)
+                throw new ArgumentNullException(nameof(secrets));
+
+            // Concurrent, because reference resolution now fetches secrets in parallel and a
+            // test may add to the resolver while a resolution is in flight.
+            _secrets = new ConcurrentDictionary<string, string>(secrets);
             _throwOnMissing = throwOnMissing;
         }
 
