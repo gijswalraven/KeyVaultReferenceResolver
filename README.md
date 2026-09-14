@@ -196,8 +196,15 @@ builder.AddKeyVaultReferenceResolver(options =>
     // environment credential otherwise sits ahead of managed identity in the chain.
     options.ExcludeEnvironmentCredential = true;
 
+    // ⏰ Reject a secret that has expired or is not yet valid (default: false)
+    options.RejectSecretsOutsideValidityPeriod = true;
+
+    // ⏰ Warn this far ahead of a secret's expiry (default: 7 days)
+    options.ExpiryWarningThreshold = TimeSpan.FromDays(14);
+
     // 🌍 Sovereign clouds
     options.AuthorityHost = AzureAuthorityHosts.AzureGovernment;
+    options.VaultDnsSuffix = "vault.usgovcloudapi.net";
     options.AllowedVaultHostSuffixes = new List<string> { ".vault.usgovcloudapi.net" };
 
     // 🎛️ Full control over the Key Vault client (retries, proxy, API version)
@@ -256,11 +263,53 @@ builder.AddKeyVaultReferenceResolver(
 ```
 
 **Sample output:**
+
+```text
+dbug: KeyVault[1001] Resolved Key Vault reference: https://myvault.vault.azure.net/secrets/***
+info: KeyVault[1002] Successfully resolved secret from https://myvault.vault.azure.net
+info: KeyVault[1004] Resolved 2 of 2 configuration value(s) containing Key Vault reference(s)
 ```
-info: KeyVault[0] Resolved Key Vault reference: ConnectionStrings:Database
-info: KeyVault[0] Resolved Key Vault reference: ExternalServices:ApiKey
-info: KeyVault[0] Resolved 2 Key Vault reference(s)
-```
+
+### What each level emits
+
+**Secret values are never logged, at any level.**
+
+| Level | Emitted |
+|-------|---------|
+| `Information` | Per-secret success (vault host only), the aggregate count, the selected Vault auth method |
+| `Warning` | A secret is expired, not yet valid, or expiring within `ExpiryWarningThreshold` |
+| `Error` | A reference failed to resolve, including the configuration key and the exception |
+| `Debug` | Secret **names**, configuration **keys**, cache hits, and the KV engine version probe |
+
+Secret names and configuration key names appear only at `Debug`. They are not
+secrets, but together they inventory which keys hold credentials and what exists
+in the vault, so they are kept out of the levels that ship to an aggregated log
+store by default. Treat `Debug` records from this library as sensitive and
+restrict their retention accordingly.
+
+### Event IDs
+
+Every record carries a stable `EventId`, so alerts and audit queries can key on
+an identifier rather than message text — see `LogEvents` (1000s resolution,
+1100s secret validity, 1200s caching) and `HashiCorpLogEvents` (2000s
+resolution, 2100s authentication, 2200s caching). Ones worth alerting on:
+
+| ID | Meaning |
+|----|---------|
+| `1003` | A reference failed to resolve and its value was set to `null` |
+| `1101` | A secret past its expiry was used anyway |
+| `1102` | A secret expires soon |
+| `2101` | Which Vault auth method was auto-selected — a change here is worth noticing |
+| `2102` | Vault rejected the login token and the client re-authenticated |
+
+### Note on inner exceptions
+
+A resolution failure is logged with the underlying exception from
+`Azure.Identity`, `Azure.Security.KeyVault.Secrets` or `VaultSharp` attached.
+Those messages carry response status and body, which is where the diagnostic
+value is. Secret values do not appear there — a secret payload only comes back
+on a successful response, which raises no exception — but if you forward
+exceptions to a third-party sink, that is the text being forwarded.
 
 ---
 
