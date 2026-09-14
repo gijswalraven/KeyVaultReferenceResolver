@@ -84,18 +84,29 @@ namespace KeyVaultReferenceResolver.HashiCorp
             options.Validate();
             logger = logger ?? NullLogger.Instance;
 
-            var tempConfig = builder.Build();
             var references = new List<KeyValuePair<string, string>>();
 
-            foreach (var kvp in tempConfig.AsEnumerable())
+            // builder.Build() instantiates a fresh set of providers, separate from the ones the
+            // caller's own Build() will create. Each AddJsonFile(reloadOnChange: true) among them
+            // holds a FileSystemWatcher, so leaving this undisposed leaks one per source for the
+            // lifetime of the process.
+            var tempConfig = builder.Build();
+            try
             {
-                if (string.IsNullOrEmpty(kvp.Value))
-                    continue;
+                foreach (var kvp in tempConfig.AsEnumerable())
+                {
+                    if (string.IsNullOrEmpty(kvp.Value))
+                        continue;
 
-                if (!HashiCorpVaultSecretResolver.IsHashiCorpVaultReference(kvp.Value))
-                    continue;
+                    if (!HashiCorpVaultSecretResolver.IsHashiCorpVaultReference(kvp.Value))
+                        continue;
 
-                references.Add(new KeyValuePair<string, string>(kvp.Key, kvp.Value!));
+                    references.Add(new KeyValuePair<string, string>(kvp.Key, kvp.Value!));
+                }
+            }
+            finally
+            {
+                (tempConfig as IDisposable)?.Dispose();
             }
 
             if (references.Count == 0)
