@@ -13,13 +13,14 @@ namespace KeyVaultReferenceResolver
     /// <summary>
     /// Default implementation of <see cref="ISecretResolver"/> that uses Azure Key Vault.
     /// </summary>
-    public class KeyVaultSecretResolver : ISecretResolver
+    public class KeyVaultSecretResolver : ISecretResolver, IDisposable
     {
         private readonly TokenCredential _credential;
         private readonly KeyVaultReferenceResolverOptions _options;
         private readonly ILogger _logger;
         private readonly ConcurrentDictionary<string, SecretClient> _secretClients = new ConcurrentDictionary<string, SecretClient>();
-        private readonly ConcurrentDictionary<string, string> _secretCache = new ConcurrentDictionary<string, string>();
+        private readonly ConcurrentDictionary<string, CacheEntry> _secretCache = new ConcurrentDictionary<string, CacheEntry>();
+        private bool _disposed;
 
         /// <summary>
         /// Creates a new instance of <see cref="KeyVaultSecretResolver"/>.
@@ -31,21 +32,41 @@ namespace KeyVaultReferenceResolver
             ILogger? logger = null)
         {
             _options = options ?? new KeyVaultReferenceResolverOptions();
-            _credential = _options.Credential ?? new DefaultAzureCredential();
-            _logger = logger ?? NullLogger<KeyVaultSecretResolver>.Instance;
+            _options.Validate();
+            _credential = _options.Credential ?? CreateDefaultCredential(_options);
+            _logger = logger ?? NullLogger.Instance;
         }
 
         /// <inheritdoc />
-        public async Task<string> ResolveSecretAsync(string secretUri, CancellationToken cancellationToken = default)
+        public Task<string> ResolveSecretAsync(string secretUri, CancellationToken cancellationToken = default)
+        {
+            return ResolveSecretAsync(secretUri, forceRefresh: false, cancellationToken);
+        }
+
+        /// <summary>
+        /// Resolves a secret, optionally bypassing the cache and fetching a fresh value from Key Vault.
+        /// </summary>
+        /// <param name="secretUri">The full URI to the secret.</param>
+        /// <param name="forceRefresh">
+        /// When true, ignores any cached value, fetches from Key Vault and replaces the cache entry.
+        /// Use this when the application has evidence that the cached secret is stale, such as a
+        /// downstream login failing with an authentication error.
+        /// </param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The secret value.</returns>
+        public async Task<string> ResolveSecretAsync(string secretUri, bool forceRefresh, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(secretUri))
                 throw new ArgumentException("Secret URI cannot be null or empty.", nameof(secretUri));
 
             // Check cache first
-            if (_options.EnableCaching && _secretCache.TryGetValue(secretUri, out var cachedValue))
+            if (!forceRefresh &&
+                _options.EnableCaching &&
+                _secretCache.TryGetValue(secretUri, out var cached) &&
+                !cached.IsExpired)
             {
                 _logger.LogDebug("Returning cached secret for URI: {SecretUri}", MaskUri(secretUri));
-                return cachedValue;
+                return cached.Value;
             }
 
             var (vaultUri, secretName, version) = ParseSecretUri(secretUri);
@@ -53,7 +74,8 @@ namespace KeyVaultReferenceResolver
 
             using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                cts.CancelAfter(_options.Timeout);
+                if (_options.Timeout != System.Threading.Timeout.InfiniteTimeSpan)
+                    cts.CancelAfter(_options.Timeout);
 
                 try
                 {
@@ -68,15 +90,15 @@ namespace KeyVaultReferenceResolver
                     // Cache the resolved secret
                     if (_options.EnableCaching)
                     {
-                        _secretCache[secretUri] = secretValue;
+                        _secretCache[secretUri] = new CacheEntry(secretValue, _options.CacheTtl);
                     }
 
                     _logger.LogInformation("Successfully resolved secret: {SecretName}", secretName);
                     return secretValue;
                 }
-                catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException ex) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
-                    throw new TimeoutException($"Timeout resolving secret from {MaskUri(secretUri)}");
+                    throw new TimeoutException($"Timeout resolving secret from {MaskUri(secretUri)}", ex);
                 }
             }
         }
@@ -84,12 +106,114 @@ namespace KeyVaultReferenceResolver
         /// <inheritdoc />
         public string ResolveSecret(string secretUri)
         {
-            return ResolveSecretAsync(secretUri).GetAwaiter().GetResult();
+            return ResolveSecretAsync(secretUri, forceRefresh: false).GetAwaiter().GetResult();
         }
 
-        private static (Uri vaultUri, string secretName, string? version) ParseSecretUri(string secretUri)
+        /// <summary>
+        /// Resolves a secret synchronously, optionally bypassing the cache.
+        /// </summary>
+        /// <param name="secretUri">The full URI to the secret.</param>
+        /// <param name="forceRefresh">When true, ignores any cached value and fetches from Key Vault.</param>
+        /// <returns>The secret value.</returns>
+        public string ResolveSecret(string secretUri, bool forceRefresh)
         {
-            var uri = new Uri(secretUri);
+            return ResolveSecretAsync(secretUri, forceRefresh).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Removes cached secrets so that the next resolution goes back to Key Vault.
+        /// </summary>
+        /// <param name="secretUri">The secret URI to evict, or null to clear the whole cache.</param>
+        /// <remarks>
+        /// This affects secrets resolved through this instance. Values already written into
+        /// <see cref="Microsoft.Extensions.Configuration.IConfiguration"/> during startup are not
+        /// re-read and keep their original values until the application restarts.
+        /// </remarks>
+        public void InvalidateCache(string? secretUri = null)
+        {
+            if (secretUri == null)
+            {
+                _secretCache.Clear();
+                return;
+            }
+
+            _secretCache.TryRemove(secretUri, out _);
+        }
+
+        /// <summary>
+        /// Clears the cached secret values and Key Vault clients held by this resolver.
+        /// </summary>
+        /// <remarks>
+        /// Resolved secrets are plain managed strings and cannot be zeroed, but dropping the
+        /// references lets the garbage collector reclaim them rather than keeping them reachable
+        /// (and therefore present in any crash dump) for the lifetime of the process.
+        /// </remarks>
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Releases the resources held by this resolver.
+        /// </summary>
+        /// <param name="disposing">True when called from <see cref="Dispose()"/>.</param>
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+                return;
+
+            if (disposing)
+            {
+                _secretCache.Clear();
+                _secretClients.Clear();
+            }
+
+            _disposed = true;
+        }
+
+        private static TokenCredential CreateDefaultCredential(KeyVaultReferenceResolverOptions options)
+        {
+            var credentialOptions = new DefaultAzureCredentialOptions
+            {
+                ExcludeAzureCliCredential = !options.AllowDeveloperCredentials,
+                ExcludeAzureDeveloperCliCredential = !options.AllowDeveloperCredentials,
+                ExcludeVisualStudioCredential = !options.AllowDeveloperCredentials,
+                ExcludeAzurePowerShellCredential = !options.AllowDeveloperCredentials,
+                ExcludeInteractiveBrowserCredential = true,
+                ExcludeEnvironmentCredential = options.ExcludeEnvironmentCredential
+            };
+
+            if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
+                credentialOptions.ManagedIdentityClientId = options.ManagedIdentityClientId;
+
+            if (!string.IsNullOrWhiteSpace(options.TenantId))
+                credentialOptions.TenantId = options.TenantId;
+
+            if (options.AuthorityHost != null)
+                credentialOptions.AuthorityHost = options.AuthorityHost;
+
+            return new DefaultAzureCredential(credentialOptions);
+        }
+
+        private (Uri vaultUri, string secretName, string? version) ParseSecretUri(string secretUri)
+        {
+            if (!Uri.TryCreate(secretUri, UriKind.Absolute, out var uri))
+            {
+                throw new ArgumentException(
+                    $"Invalid Key Vault secret URI: {MaskUri(secretUri)}.",
+                    nameof(secretUri));
+            }
+
+            if (uri.Scheme != Uri.UriSchemeHttps)
+            {
+                throw new ArgumentException(
+                    $"Key Vault secret URIs must use https. Got scheme '{uri.Scheme}'.",
+                    nameof(secretUri));
+            }
+
+            EnsureAllowedVaultHost(uri);
+
             var vaultUri = new Uri($"{uri.Scheme}://{uri.Host}");
 
             var pathParts = uri.AbsolutePath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
@@ -97,21 +221,53 @@ namespace KeyVaultReferenceResolver
             if (pathParts.Length < 2 || !pathParts[0].Equals("secrets", StringComparison.OrdinalIgnoreCase))
             {
                 throw new ArgumentException(
-                    $"Invalid Key Vault secret URI format: {secretUri}. Expected format: https://{{vault}}.vault.azure.net/secrets/{{secret-name}}[/{{version}}]",
+                    $"Invalid Key Vault secret URI format: {MaskUri(secretUri)}. Expected format: https://{{vault}}.vault.azure.net/secrets/{{secret-name}}[/{{version}}]",
                     nameof(secretUri));
             }
 
-            var secretName = pathParts[1];
-            var version = pathParts.Length > 2 ? pathParts[2] : null;
+            var secretName = Uri.UnescapeDataString(pathParts[1]);
+            var version = pathParts.Length > 2 ? Uri.UnescapeDataString(pathParts[2]) : null;
 
             return (vaultUri, secretName, version);
+        }
+
+        private void EnsureAllowedVaultHost(Uri uri)
+        {
+            var allowed = _options.AllowedVaultHostSuffixes;
+            if (allowed == null || allowed.Count == 0)
+                return;
+
+            foreach (var suffix in allowed)
+            {
+                if (string.IsNullOrWhiteSpace(suffix))
+                    continue;
+
+                if (uri.Host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+
+            throw new ArgumentException(
+                $"Vault host '{uri.Host}' is not an allowed Key Vault host. " +
+                $"Add its suffix to {nameof(KeyVaultReferenceResolverOptions)}.{nameof(KeyVaultReferenceResolverOptions.AllowedVaultHostSuffixes)} if this is intentional.",
+                nameof(uri));
         }
 
         private SecretClient GetOrCreateClient(Uri vaultUri)
         {
             return _secretClients.GetOrAdd(
                 vaultUri.ToString(),
-                _ => new SecretClient(vaultUri, _credential));
+                _ => new SecretClient(vaultUri, _credential, BuildClientOptions()));
+        }
+
+        private SecretClientOptions BuildClientOptions()
+        {
+            var clientOptions = _options.ClientOptions ?? new SecretClientOptions();
+
+            // Never let Azure SDK content logging write secret payloads to the log,
+            // regardless of AZURE_LOG_LEVEL or any listener the consumer has attached.
+            clientOptions.Diagnostics.IsLoggingContentEnabled = false;
+
+            return clientOptions;
         }
 
         private static string MaskUri(string uri)
@@ -126,6 +282,23 @@ namespace KeyVaultReferenceResolver
             {
                 return "***";
             }
+        }
+
+        private readonly struct CacheEntry
+        {
+            private readonly DateTimeOffset _expiresAt;
+
+            public CacheEntry(string value, TimeSpan ttl)
+            {
+                Value = value;
+                _expiresAt = ttl == System.Threading.Timeout.InfiniteTimeSpan
+                    ? DateTimeOffset.MaxValue
+                    : DateTimeOffset.UtcNow.Add(ttl);
+            }
+
+            public string Value { get; }
+
+            public bool IsExpired => DateTimeOffset.UtcNow >= _expiresAt;
         }
     }
 }

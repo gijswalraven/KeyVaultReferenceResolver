@@ -108,7 +108,7 @@ public class KeyVaultSecretResolverTests
     }
 
     [Fact]
-    public async Task ResolveSecretAsync_InvalidUriFormat_ThrowsUriFormatException()
+    public async Task ResolveSecretAsync_InvalidUriFormat_ThrowsArgumentException()
     {
         // Arrange
         var resolver = new KeyVaultSecretResolver();
@@ -117,7 +117,57 @@ public class KeyVaultSecretResolverTests
         Func<Task> act = async () => await resolver.ResolveSecretAsync("not-a-valid-uri", TestContext.Current.CancellationToken);
 
         // Assert
-        await Assert.ThrowsAsync<UriFormatException>(act);
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Equal("secretUri", ex.ParamName);
+        // The malformed value must not be echoed back in the message.
+        Assert.DoesNotContain("not-a-valid-uri", ex.Message);
+    }
+
+    [Fact]
+    public async Task ResolveSecretAsync_NonHttpsUri_ThrowsArgumentException()
+    {
+        // Arrange
+        var resolver = new KeyVaultSecretResolver();
+
+        // Act
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(
+            "http://myvault.vault.azure.net/secrets/mysecret", TestContext.Current.CancellationToken);
+
+        // Assert
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Contains("https", ex.Message);
+    }
+
+    [Fact]
+    public async Task ResolveSecretAsync_HostOutsideKeyVault_ThrowsArgumentException()
+    {
+        // Arrange
+        var resolver = new KeyVaultSecretResolver();
+
+        // Act - a tampered configuration value pointing at a host the process must not talk to
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(
+            "https://attacker.example.com/secrets/mysecret", TestContext.Current.CancellationToken);
+
+        // Assert
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Contains("attacker.example.com", ex.Message);
+    }
+
+    [Fact]
+    public async Task ResolveSecretAsync_HostAllowListCleared_SkipsHostCheck()
+    {
+        // Arrange
+        var options = new KeyVaultReferenceResolverOptions();
+        options.AllowedVaultHostSuffixes.Clear();
+        var resolver = new KeyVaultSecretResolver(options);
+
+        // Act - the host check is opt-out; the URI shape is still validated
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(
+            "https://internal.example.com/not-secrets/mysecret", TestContext.Current.CancellationToken);
+
+        // Assert
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Contains("Expected format", ex.Message);
     }
 
     [Fact]
