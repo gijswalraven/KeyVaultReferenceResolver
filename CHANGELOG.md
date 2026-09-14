@@ -72,12 +72,62 @@ version.
 - Masked the secret URI in `ParseSecretUri`'s exception message instead of
   echoing the value back (CWE-209).
 
+- **Substitute references in place.** The patterns are unanchored, so a value
+  only had to *contain* a reference to match — but the resolved secret then
+  replaced the *entire* value. `"Server=db;Password=@Microsoft.KeyVault(...)"`
+  collapsed to just the password, and a value embedding two references resolved
+  only the first, silently discarding the rest. If any reference within a value
+  now fails, the whole value becomes `null`: a connection string with an empty
+  password in it is worse than a missing one.
+- **Mask the reference stored on resolution exceptions.** Both exception types
+  kept the unmasked reference on a public property, and both are thrown out of
+  `Build()` during startup — so crash dumps, developer error pages and APM sinks
+  that serialize exception properties recorded the vault and secret name. The
+  HashiCorp side held the *raw configuration value*, so a compound value such as
+  a connection string with an inline password was captured whole.
+- **Keep secret names out of logs at Information and above.** `MaskUri` was
+  applied only on the cache-hit and timeout paths; the success path logged the
+  name verbatim at the level that ships to an aggregated log store by default.
+  The per-key "Resolved reference" record moved to Debug, since one record per
+  key maps exactly which keys hold credentials.
+- **Validate HashiCorp secret paths.** The path pattern accepted anything but
+  `;` and `)`, and went straight into the Vault request URL, so
+  `SecretPath=secret/data/../../sys/mounts` was dot-segment-normalised into a
+  different API endpoint and `?`/`#` spliced on a query or fragment.
+- **Re-authenticate to Vault on 401/403.** VaultSharp logs in once and caches
+  the result, so once the login token's TTL elapsed every read failed for the
+  life of the process, and the cached client was never evicted.
+- **Honour secret validity periods.** Key Vault does not block reads of an
+  expired secret — expiry is advisory — so the library handed applications
+  expired credentials and the failure surfaced later at the downstream service.
+- **Log which Vault auth method was auto-selected.** A leftover `VAULT_TOKEN` in
+  a production container silently overrode the intended workload identity, since
+  token auth is tried before AppRole and Kubernetes, with nothing recording it.
+- Dispose the temporary `IConfigurationRoot` built during resolution, which
+  leaked a `FileSystemWatcher` per `reloadOnChange` source.
+- `MockSecretResolver` marked `[EditorBrowsable(Never)]` with an explicit
+  test-only warning, and its backing store made concurrent.
+
 ### Added
 
 - `KeyVaultReferenceResolverOptions`: `ManagedIdentityClientId`, `TenantId`,
   `AuthorityHost`, `AllowDeveloperCredentials`, `ExcludeEnvironmentCredential`,
-  `ClientOptions`, `AllowedVaultHostSuffixes`, `OverallTimeout`,
-  `MaxConcurrency`, `CacheTtl`, `Validate()`.
+  `ClientOptions`, `AllowedVaultHostSuffixes`, `VaultDnsSuffix`,
+  `RejectSecretsOutsideValidityPeriod`, `ExpiryWarningThreshold`,
+  `OverallTimeout`, `MaxConcurrency`, `CacheTtl`, `Validate()`.
+- `VaultDnsSuffix`, so the `VaultName=` format works in Azure Government and
+  Azure China — it previously hard-coded `.vault.azure.net`.
+- Public `LogEvents` and `HashiCorpLogEvents`, giving every record a stable
+  EventId so log-based controls can be keyed on an identifier rather than
+  message text.
+- Actionable messages for Key Vault request failures: 401/403 names the
+  `Key Vault Secrets User` role and the vault firewall, 404 mentions
+  soft-delete, 429 points at `MaxConcurrency`.
+- KV engine version probing: with `KvVersion` unset, a read is attempted as v2
+  and retried as v1. Reading `sys/mounts` to detect it properly needs
+  permissions a least-privileged token does not have.
+- `(message)` and `(message, innerException)` constructors on both exception
+  types (CA1032).
 - `HashiCorpVaultResolverOptions`: `AllowInsecureTransport`,
   `AllowedVaultAddresses`, `OverallTimeout`, `MaxConcurrency`, `CacheTtl`,
   `Validate()`, `EnsureTransportAllowed()`.
@@ -102,6 +152,14 @@ version.
 - `ParseSecretUri` throws `ArgumentException` rather than `UriFormatException`
   for a malformed URI.
 - Resolution failures log at `Error` rather than `Warning`.
+- `KeyVaultReferenceResolutionException.SecretUri` and
+  `HashiCorpVaultReferenceResolutionException.VaultReference` now return the
+  masked form. Code reading them to reconstruct a URI must use the
+  configuration value instead.
+- A value embedding a reference alongside literal text now keeps that text. Any
+  code that relied on the whole value being replaced by the secret will see
+  different output — though that behaviour produced malformed connection
+  strings, so it is unlikely to have been depended on deliberately.
 
 ### CI
 
