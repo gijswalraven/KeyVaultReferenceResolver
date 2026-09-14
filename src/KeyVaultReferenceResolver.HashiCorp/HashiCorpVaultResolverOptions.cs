@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using KeyVaultReferenceResolver.HashiCorp.Authentication;
 
 namespace KeyVaultReferenceResolver.HashiCorp
@@ -12,6 +13,11 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// Gets or sets the HashiCorp Vault server address.
         /// If null, reads from VAULT_ADDR environment variable.
         /// </summary>
+        /// <remarks>
+        /// When this is set, a vault address carried inside a configuration reference must match it.
+        /// Setting it is the strongest available protection against a tampered configuration value
+        /// redirecting the resolver's Vault token to a host of the attacker's choosing.
+        /// </remarks>
         public string? VaultAddress { get; set; }
 
         /// <summary>
@@ -45,13 +51,34 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// Gets or sets whether to throw an exception when a secret cannot be resolved.
         /// Default is true (fail fast).
         /// </summary>
+        /// <remarks>
+        /// When set to <c>false</c>, a configuration key whose secret cannot be resolved is set to
+        /// <c>null</c> rather than being left holding the literal <c>@HashiCorp.Vault(...)</c>
+        /// reference. The application therefore sees a missing value instead of receiving the
+        /// reference string itself as if it were the secret.
+        /// </remarks>
         public bool ThrowOnResolveFailure { get; set; } = true;
 
         /// <summary>
-        /// Gets or sets the timeout for secret retrieval operations.
+        /// Gets or sets the timeout for a single secret retrieval operation.
         /// Default is 30 seconds.
         /// </summary>
+        /// <remarks>
+        /// This is applied as the Vault HTTP client's service timeout, because VaultSharp does not
+        /// observe a <see cref="System.Threading.CancellationToken"/>.
+        /// </remarks>
         public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// Gets or sets the total time budget for resolving every reference in the configuration.
+        /// Default is 2 minutes. Use <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> for no overall limit.
+        /// </summary>
+        public TimeSpan OverallTimeout { get; set; } = TimeSpan.FromMinutes(2);
+
+        /// <summary>
+        /// Gets or sets how many secrets are resolved concurrently. Default is 8.
+        /// </summary>
+        public int MaxConcurrency { get; set; } = 8;
 
         /// <summary>
         /// Gets or sets whether to cache resolved secrets in memory.
@@ -60,16 +87,67 @@ namespace KeyVaultReferenceResolver.HashiCorp
         public bool EnableCaching { get; set; } = true;
 
         /// <summary>
+        /// Gets or sets how long a resolved secret stays cached.
+        /// Defaults to <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>: cached for the
+        /// lifetime of the resolver, with no periodic re-fetch from Vault.
+        /// </summary>
+        /// <remarks>
+        /// Refresh on demand instead of on a timer: call
+        /// <see cref="HashiCorpVaultSecretResolver.InvalidateCache"/> or resolve with
+        /// <c>forceRefresh: true</c> when the application observes that a secret has gone stale.
+        /// Values already materialised into
+        /// <see cref="Microsoft.Extensions.Configuration.IConfiguration"/> are resolved once while
+        /// the configuration is built and do not change until the application restarts.
+        /// </remarks>
+        public TimeSpan CacheTtl { get; set; } = System.Threading.Timeout.InfiniteTimeSpan;
+
+        /// <summary>
+        /// Gets or sets whether a plaintext <c>http://</c> Vault address is permitted.
+        /// Default is <c>false</c>.
+        /// </summary>
+        /// <remarks>
+        /// Over plaintext HTTP the Vault token and the returned secret are both sent in the clear,
+        /// including between pods inside a cluster. Only enable this against a local development
+        /// Vault in dev mode.
+        /// </remarks>
+        public bool AllowInsecureTransport { get; set; }
+
+        /// <summary>
+        /// Gets or sets the Vault addresses that may be contacted. When empty, and
+        /// <see cref="VaultAddress"/> is not set, any HTTPS address is accepted.
+        /// </summary>
+        public IList<string> AllowedVaultAddresses { get; set; } = new List<string>();
+
+        /// <summary>
         /// Gets or sets the Vault namespace (Enterprise feature).
         /// Leave null for open source Vault.
         /// </summary>
         public string? Namespace { get; set; }
 
         /// <summary>
+        /// Validates the option values, throwing when they cannot produce a working resolver.
+        /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when a timeout or concurrency value is invalid.</exception>
+        public void Validate()
+        {
+            if (Timeout <= TimeSpan.Zero && Timeout != System.Threading.Timeout.InfiniteTimeSpan)
+                throw new ArgumentOutOfRangeException(nameof(Timeout), Timeout, "Timeout must be positive or Timeout.InfiniteTimeSpan.");
+
+            if (OverallTimeout <= TimeSpan.Zero && OverallTimeout != System.Threading.Timeout.InfiniteTimeSpan)
+                throw new ArgumentOutOfRangeException(nameof(OverallTimeout), OverallTimeout, "OverallTimeout must be positive or Timeout.InfiniteTimeSpan.");
+
+            if (CacheTtl <= TimeSpan.Zero && CacheTtl != System.Threading.Timeout.InfiniteTimeSpan)
+                throw new ArgumentOutOfRangeException(nameof(CacheTtl), CacheTtl, "CacheTtl must be positive or Timeout.InfiniteTimeSpan.");
+
+            if (MaxConcurrency < 1)
+                throw new ArgumentOutOfRangeException(nameof(MaxConcurrency), MaxConcurrency, "MaxConcurrency must be at least 1.");
+        }
+
+        /// <summary>
         /// Gets the effective vault address, falling back to VAULT_ADDR environment variable.
         /// </summary>
         /// <returns>The vault address.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when vault address cannot be determined.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when vault address cannot be determined or is not permitted.</exception>
         public string GetEffectiveVaultAddress()
         {
             var address = VaultAddress ?? Environment.GetEnvironmentVariable("VAULT_ADDR");
@@ -77,7 +155,29 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 throw new InvalidOperationException(
                     "Vault address not configured. Set VaultAddress option or VAULT_ADDR environment variable.");
 
-            return address;
+            return EnsureTransportAllowed(address!);
+        }
+
+        /// <summary>
+        /// Validates that an address uses a permitted transport and returns it unchanged.
+        /// </summary>
+        /// <param name="address">The vault address to check.</param>
+        /// <returns>The validated address.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the address is malformed or uses plaintext HTTP without opt-in.</exception>
+        public string EnsureTransportAllowed(string address)
+        {
+            if (!Uri.TryCreate(address, UriKind.Absolute, out var uri))
+                throw new InvalidOperationException($"Vault address '{address}' is not a valid absolute URI.");
+
+            if (uri.Scheme == Uri.UriSchemeHttps)
+                return address;
+
+            if (uri.Scheme == Uri.UriSchemeHttp && AllowInsecureTransport)
+                return address;
+
+            throw new InvalidOperationException(
+                $"Vault address '{address}' must use https. Plaintext HTTP sends the Vault token and the " +
+                $"secret in the clear; set {nameof(AllowInsecureTransport)} to true only for a local development Vault.");
         }
 
         /// <summary>
@@ -100,7 +200,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
             // Try Kubernetes auth if running in K8s
             if (!string.IsNullOrWhiteSpace(KubernetesRoleName) &&
-                KubernetesAuthMethod.TryFromFile(KubernetesRoleName, out var k8sAuth))
+                KubernetesAuthMethod.TryFromFile(KubernetesRoleName!, out var k8sAuth))
                 return k8sAuth;
 
             throw new InvalidOperationException(
