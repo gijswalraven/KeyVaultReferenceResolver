@@ -38,6 +38,9 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// <summary>Numeric ID of <see cref="Reauthenticated"/>.</summary>
         public const int ReauthenticatedId = 2102;
 
+        /// <summary>Numeric ID of <see cref="VaultAddressUnverified"/>.</summary>
+        public const int VaultAddressUnverifiedId = 2103;
+
         /// <summary>Numeric ID of <see cref="CacheHit"/>.</summary>
         public const int CacheHitId = 2201;
 
@@ -61,6 +64,18 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
         /// <summary>Vault rejected the login token, so the client re-authenticated. Information.</summary>
         public static readonly EventId Reauthenticated = new EventId(ReauthenticatedId, nameof(Reauthenticated));
+
+        /// <summary>
+        /// A vault address taken from a configuration reference could not be matched against a
+        /// trusted address and was contacted anyway. Warning.
+        /// </summary>
+        /// <remarks>
+        /// Worth alerting on: it means the host this process sent its Vault credential to was
+        /// decided by a configuration value rather than by deployment configuration. Set
+        /// <see cref="HashiCorpVaultResolverOptions.StrictVaultAddressValidation"/> to turn it
+        /// into a failure.
+        /// </remarks>
+        public static readonly EventId VaultAddressUnverified = new EventId(VaultAddressUnverifiedId, nameof(VaultAddressUnverified));
 
         /// <summary>A secret was served from the in-memory cache. Debug.</summary>
         public static readonly EventId CacheHit = new EventId(CacheHitId, nameof(CacheHit));

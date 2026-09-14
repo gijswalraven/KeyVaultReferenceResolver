@@ -514,8 +514,11 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// The address in a reference comes from the configuration value itself. Any source that can
         /// influence configuration could otherwise point it at an attacker-controlled host and have
         /// the resolver's ambient Vault credential sent there.
+        /// Internal rather than private so the trust decision can be asserted on directly; testing
+        /// it through <see cref="ResolveSecretAsync(string, CancellationToken)"/> would mean the
+        /// accepted cases go on to attempt a real login.
         /// </remarks>
-        private string ResolveTrustedAddress(string vaultAddress)
+        internal string ResolveTrustedAddress(string vaultAddress)
         {
             // No address in the reference: use the configured one.
             if (string.IsNullOrWhiteSpace(vaultAddress))
@@ -534,19 +537,44 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     $"{nameof(HashiCorpVaultResolverOptions.VaultAddress)}. Refusing to authenticate against an unexpected vault.");
             }
 
+            // An explicit allow-list is authoritative when it has been populated.
             var allowed = _options.AllowedVaultAddresses;
-            if (allowed == null || allowed.Count == 0)
-                return vaultAddress;
-
-            foreach (var candidate in allowed)
+            if (allowed != null && allowed.Count > 0)
             {
-                if (!string.IsNullOrWhiteSpace(candidate) && AddressesMatch(vaultAddress, candidate))
-                    return vaultAddress;
+                foreach (var candidate in allowed)
+                {
+                    if (!string.IsNullOrWhiteSpace(candidate) && AddressesMatch(vaultAddress, candidate))
+                        return vaultAddress;
+                }
+
+                throw new InvalidOperationException(
+                    $"Vault address '{vaultAddress}' in a configuration reference is not listed in " +
+                    $"{nameof(HashiCorpVaultResolverOptions.AllowedVaultAddresses)}.");
             }
 
-            throw new InvalidOperationException(
-                $"Vault address '{vaultAddress}' in a configuration reference is not listed in " +
-                $"{nameof(HashiCorpVaultResolverOptions.AllowedVaultAddresses)}.");
+            // Nothing was configured in process, so the only remaining candidate is VAULT_ADDR.
+            // Treating it as a pin is what closes the most common deployment shape - address from
+            // the environment, no allow-list - in which any host a configuration value happens to
+            // name would be contacted with this process's Vault credential.
+            var fromEnvironment = HashiCorpVaultResolverOptions.GetVaultAddressFromEnvironment();
+
+            if (!string.IsNullOrWhiteSpace(fromEnvironment) && AddressesMatch(vaultAddress, fromEnvironment!))
+                return vaultAddress;
+
+            if (_options.StrictVaultAddressValidation)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(fromEnvironment)
+                        ? $"Vault address '{vaultAddress}' comes from a configuration reference and there is nothing " +
+                          $"to validate it against. Set {nameof(HashiCorpVaultResolverOptions.VaultAddress)} or " +
+                          $"{nameof(HashiCorpVaultResolverOptions.AllowedVaultAddresses)}, or unset " +
+                          $"{nameof(HashiCorpVaultResolverOptions.StrictVaultAddressValidation)} to allow it."
+                        : $"Vault address '{vaultAddress}' in a configuration reference does not match VAULT_ADDR " +
+                          $"('{fromEnvironment}'). Refusing to authenticate against an unexpected vault.");
+            }
+
+            HashiCorpLog.VaultAddressUnverified(_logger, vaultAddress);
+            return vaultAddress;
         }
 
         private static bool AddressesMatch(string left, string right)

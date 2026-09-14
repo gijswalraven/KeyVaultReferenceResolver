@@ -13,6 +13,14 @@ namespace KeyVaultReferenceResolver.HashiCorp
     internal static partial class HashiCorpLog
     {
         [LoggerMessage(
+            EventId = HashiCorpLogEvents.VaultAddressUnverifiedId,
+            Level = LogLevel.Warning,
+            Message = "Vault address {VaultAddress} came from a configuration reference and could not be matched " +
+                      "against VaultAddress, AllowedVaultAddresses or VAULT_ADDR; contacting it anyway. Set " +
+                      "StrictVaultAddressValidation to reject it instead.")]
+        public static partial void VaultAddressUnverified(ILogger logger, string vaultAddress);
+
+        [LoggerMessage(
             EventId = HashiCorpLogEvents.CacheHitId,
             Level = LogLevel.Debug,
             Message = "Returning cached secret for: {SecretUri}")]

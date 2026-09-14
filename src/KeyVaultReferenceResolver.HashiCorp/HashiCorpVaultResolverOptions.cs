@@ -120,10 +120,39 @@ namespace KeyVaultReferenceResolver.HashiCorp
         public bool AllowInsecureTransport { get; set; }
 
         /// <summary>
-        /// Gets or sets the Vault addresses that may be contacted. When empty, and
-        /// <see cref="VaultAddress"/> is not set, any HTTPS address is accepted.
+        /// Gets or sets the Vault addresses that may be contacted. When populated, this list is
+        /// authoritative for an address carried inside a configuration reference.
         /// </summary>
+        /// <remarks>
+        /// When this is empty and <see cref="VaultAddress"/> is not set, an address in a reference
+        /// is validated against <c>VAULT_ADDR</c>. A mismatch, or the absence of anything to
+        /// validate against, is reported according to <see cref="StrictVaultAddressValidation"/>.
+        /// </remarks>
         public IList<string> AllowedVaultAddresses { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Gets or sets whether an address in a configuration reference that cannot be matched
+        /// against a trusted address is rejected rather than used. Default is <c>false</c>, which
+        /// logs a warning and contacts the address anyway.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The address in a reference comes from the configuration value itself, so any source that
+        /// can influence configuration can name a host and have this process's Vault credential -
+        /// <c>VAULT_TOKEN</c>, an AppRole secret ID, or a Kubernetes service account token -
+        /// presented to it. Setting <see cref="VaultAddress"/> or
+        /// <see cref="AllowedVaultAddresses"/> already closes that off; this option additionally
+        /// treats <c>VAULT_ADDR</c> as a pin, and refuses to proceed when there is nothing at all
+        /// to validate against.
+        /// </para>
+        /// <para>
+        /// It defaults to <c>false</c> so that enabling it is a deliberate step rather than a
+        /// behaviour change on upgrade. The warning logged in the permissive case
+        /// (<see cref="HashiCorpLogEvents.VaultAddressUnverified"/>) is there to find affected
+        /// configurations before the default flips to <c>true</c> in the next major version.
+        /// </para>
+        /// </remarks>
+        public bool StrictVaultAddressValidation { get; set; }
 
         /// <summary>
         /// Gets or sets the Vault namespace (Enterprise feature).
@@ -157,12 +186,21 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// <exception cref="InvalidOperationException">Thrown when vault address cannot be determined or is not permitted.</exception>
         public string GetEffectiveVaultAddress()
         {
-            var address = VaultAddress ?? Environment.GetEnvironmentVariable("VAULT_ADDR");
+            var address = VaultAddress ?? GetVaultAddressFromEnvironment();
             if (string.IsNullOrWhiteSpace(address))
                 throw new InvalidOperationException(
                     "Vault address not configured. Set VaultAddress option or VAULT_ADDR environment variable.");
 
             return EnsureTransportAllowed(address!);
+        }
+
+        /// <summary>
+        /// Reads the vault address from the environment. Declared here so the variable name is
+        /// written once and the resolver's trust check cannot drift from the address it resolves.
+        /// </summary>
+        internal static string? GetVaultAddressFromEnvironment()
+        {
+            return Environment.GetEnvironmentVariable("VAULT_ADDR");
         }
 
         /// <summary>
