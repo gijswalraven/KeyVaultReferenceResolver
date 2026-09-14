@@ -85,9 +85,11 @@ Maintainers only:
    publishes to nuget.org via Trusted Publishing (OIDC — there is no long-lived API key).
    It runs in the protected `nuget-production` environment, so it waits for approval.
 
-Follow [Semantic Versioning](https://semver.org/). A behaviour change that could break a
-consumer at runtime is a major bump even if the API still compiles — the 2.0.0 release is
-the precedent for that.
+Follow [Semantic Versioning](https://semver.org/). Note that a behaviour change can break
+a consumer at runtime even when every public signature is unchanged and the upgrade
+recompiles cleanly — 1.3.0 is the example, since it changed what happens when a reference
+cannot be resolved. Where such a change ships in a minor version, the breaking behaviour
+must be called out at the top of its CHANGELOG entry.
 
 ## Never commit
 

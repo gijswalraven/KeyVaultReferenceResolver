@@ -209,7 +209,7 @@ The check reads only the core package's csproj. That works because the two packa
 This is the control that survives a stolen publishing credential. An attacker who somehow pushes a package under these IDs cannot produce a valid attestation, so a consumer who verifies detects it:
 
 ```bash
-gh attestation verify KeyVaultReferenceResolver.2.0.0.nupkg \
+gh attestation verify KeyVaultReferenceResolver.1.3.0.nupkg \
   --repo gijswalraven/KeyVaultReferenceResolver
 ```
 
@@ -296,9 +296,9 @@ Release procedure, from [CONTRIBUTING.md](../../CONTRIBUTING.md):
 
 Semantic versioning, with one clarification that this repository has already exercised:
 
-> A behaviour change that could break a consumer at runtime is a major bump even if the API still compiles — the 2.0.0 release is the precedent for that.
+> A behaviour change can break a consumer at runtime even when every public signature is unchanged and the upgrade recompiles cleanly. Where such a change ships in a minor version, the breaking behaviour must be called out at the top of its CHANGELOG entry.
 
-2.0.0 changed no public signatures. It changed what happens when a reference cannot be resolved (fail closed rather than leaving the literal string), which recompiles cleanly and can stop an application from starting. That is a major bump.
+1.3.0 is the example. It changed no public signatures, but it changed what happens when a reference cannot be resolved (fail closed rather than leaving the literal string), which recompiles cleanly and can stop an application from starting. It shipped as a minor version with the breaking behaviour documented at the top of its CHANGELOG entry rather than as a major bump.
 
 ## Package metadata
 
@@ -306,7 +306,7 @@ Both csproj files carry the same shape:
 
 ```xml
 <PackageId>KeyVaultReferenceResolver</PackageId>
-<Version>2.0.0</Version>
+<Version>1.3.0</Version>
 <PackageLicenseExpression>MIT</PackageLicenseExpression>
 <PackageReadmeFile>README.md</PackageReadmeFile>
 <PublishRepositoryUrl>true</PublishRepositoryUrl>
