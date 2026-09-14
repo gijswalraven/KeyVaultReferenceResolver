@@ -36,7 +36,7 @@ public class KeyVaultReferenceResolutionExceptionTests
     }
 
     [Fact]
-    public void Constructor_SetsSecretUri()
+    public void Constructor_MasksSecretNameInSecretUri()
     {
         // Arrange & Act
         var exception = new KeyVaultReferenceResolutionException(
@@ -44,8 +44,49 @@ public class KeyVaultReferenceResolutionExceptionTests
             TestConfigKey,
             TestSecretUri);
 
+        // Assert - the vault is identifiable, the secret name is not
+        Assert.Equal("https://myvault.vault.azure.net/secrets/***", exception.SecretUri);
+        Assert.DoesNotContain("db-connection", exception.SecretUri);
+    }
+
+    [Fact]
+    public void Constructor_UnparseableSecretUri_MasksEntirely()
+    {
+        // Arrange & Act
+        var exception = new KeyVaultReferenceResolutionException(
+            TestMessage,
+            TestConfigKey,
+            "not-a-uri-db-connection");
+
         // Assert
-        Assert.Equal(TestSecretUri, exception.SecretUri);
+        Assert.Equal("***", exception.SecretUri);
+        Assert.DoesNotContain("db-connection", exception.SecretUri);
+    }
+
+    [Fact]
+    public void Constructor_MessageOnly_LeavesReferencePropertiesEmpty()
+    {
+        // Arrange & Act
+        var exception = new KeyVaultReferenceResolutionException(TestMessage);
+
+        // Assert
+        Assert.Equal(TestMessage, exception.Message);
+        Assert.Equal(string.Empty, exception.ConfigurationKey);
+        Assert.Equal(string.Empty, exception.SecretUri);
+    }
+
+    [Fact]
+    public void Constructor_MessageAndInnerException_LeavesReferencePropertiesEmpty()
+    {
+        // Arrange
+        var inner = new InvalidOperationException("inner");
+
+        // Act
+        var exception = new KeyVaultReferenceResolutionException(TestMessage, inner);
+
+        // Assert
+        Assert.Same(inner, exception.InnerException);
+        Assert.Equal(string.Empty, exception.SecretUri);
     }
 
     [Fact]
