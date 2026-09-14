@@ -225,7 +225,11 @@ namespace KeyVaultReferenceResolver
                     .ConfigureAwait(false);
 
                 resolved[reference.Key] = secretValue;
-                logger.LogInformation("Resolved Key Vault reference: {ConfigKey}", reference.Key);
+                // Debug rather than Information: one record per key produces a map of exactly
+                // which configuration keys hold credentials, and key names routinely embed
+                // tenant or customer identifiers (Clients:AcmeCorp:ApiKey). The aggregate count
+                // is logged at Information instead.
+                logger.LogDebug("Resolved Key Vault reference: {ConfigKey}", reference.Key);
             }
             catch (Exception ex)
             {

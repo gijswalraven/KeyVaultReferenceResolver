@@ -104,8 +104,12 @@ namespace KeyVaultReferenceResolver.HashiCorp
                         _secretCache[secretUri] = new CacheEntry(secretValue, _options.CacheTtl);
                     }
 
-                    _logger.LogInformation("Successfully resolved secret: {SecretKey} from {SecretPath}",
-                        secretKey, MaskPath(secretPath));
+                    // Information level carries no secret key: these records are shipped to
+                    // aggregated log stores, where key names such as "prod-db-root-password"
+                    // would amount to an inventory of the vault's contents. The key is
+                    // available at Debug.
+                    _logger.LogInformation("Successfully resolved secret from {SecretPath}",
+                        MaskPath(secretPath));
                     return secretValue;
                 }
                 catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
