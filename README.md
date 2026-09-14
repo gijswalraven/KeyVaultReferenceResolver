@@ -618,7 +618,25 @@ KeyVaultReferenceResolver/
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and
+review flow, and for what a change to the resolution path additionally needs. Changes to
+this repository are also subject to [CODEOWNERS](.github/CODEOWNERS) review.
+
+Found a security problem? Do **not** open an issue — follow [SECURITY.md](SECURITY.md).
+
+### Verifying a release
+
+Each release is published via NuGet Trusted Publishing (OIDC, no long-lived API key) and
+carries a build provenance attestation plus a CycloneDX SBOM. To confirm a package was
+built from this repository rather than uploaded from elsewhere:
+
+```bash
+gh attestation verify KeyVaultReferenceResolver.2.0.0.nupkg \
+  --repo gijswalraven/KeyVaultReferenceResolver
+```
+
+The SBOM (`KeyVaultReferenceResolver-sbom.cdx.json`) is attached to the GitHub release
+and lists the full transitive closure.
 
 ### Building from source
 
