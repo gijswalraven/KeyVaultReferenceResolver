@@ -414,6 +414,18 @@ KeyVaultReferenceResolver/
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+### Building from source
+
+Building and testing this repo requires the **.NET 10 SDK** (pinned in `global.json`).
+This is a contributor requirement only — the published packages target
+`netstandard2.0` and consumers still only need .NET 8.0+, as listed under
+[Requirements](#-requirements).
+
+```bash
+dotnet build
+dotnet test
+```
+
 ---
 
 ## 📄 License
