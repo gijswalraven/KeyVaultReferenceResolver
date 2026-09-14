@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Xunit;
+using KeyVaultReferenceResolver.Testing;
 
 namespace KeyVaultReferenceResolver.HashiCorp.Tests
 {
@@ -62,7 +63,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void AddHashiCorpVaultResolver_WithMockResolver_ResolvesReferences()
         {
             // Arrange
-            var mockResolver = new MockSecretResolver()
+            var mockResolver = new FakeSecretResolver()
                 .AddSecret(
                     "@HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath=secret/data/myapp;SecretKey=password)",
                     "resolved-password");
@@ -87,7 +88,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void AddHashiCorpVaultResolver_WithUriFormat_ResolvesReferences()
         {
             // Arrange
-            var mockResolver = new MockSecretResolver()
+            var mockResolver = new FakeSecretResolver()
                 .AddSecret(
                     "hashicorp://vault.example.com/secret/data/myapp#api-key",
                     "resolved-api-key");
@@ -110,7 +111,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void AddHashiCorpVaultResolver_NoReferences_LeavesConfigUnchanged()
         {
             // Arrange
-            var mockResolver = new MockSecretResolver();
+            var mockResolver = new FakeSecretResolver();
 
             var builder = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
@@ -132,7 +133,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void AddHashiCorpVaultResolver_ThrowOnResolveFailureFalse_DoesNotThrow()
         {
             // Arrange
-            var mockResolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
+            var mockResolver = new FakeSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
 
             var builder = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
@@ -151,7 +152,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void AddHashiCorpVaultResolver_ThrowOnResolveFailureTrue_ThrowsException()
         {
             // Arrange
-            var mockResolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
+            var mockResolver = new FakeSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
 
             var builder = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>

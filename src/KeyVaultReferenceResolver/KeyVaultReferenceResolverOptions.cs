@@ -56,6 +56,19 @@ namespace KeyVaultReferenceResolver
         public Uri? AuthorityHost { get; set; }
 
         /// <summary>
+        /// Gets or sets the tenants, besides <see cref="TenantId"/>, that the credential may
+        /// acquire a token from. <c>null</c> (the default) leaves the Azure Identity default in
+        /// place, which honours the <c>AZURE_ADDITIONALLY_ALLOWED_TENANTS</c> environment variable.
+        /// </summary>
+        /// <remarks>
+        /// Set this to an empty list to pin the credential to a single tenant, so that neither an
+        /// environment variable nor an authentication challenge from a vault outside the home
+        /// tenant can widen where a token is issued from. Ignored when <see cref="Credential"/>
+        /// is set.
+        /// </remarks>
+        public IList<string>? AdditionallyAllowedTenants { get; set; }
+
+        /// <summary>
         /// Gets or sets whether locally cached developer credentials (Azure CLI, Azure Developer CLI,
         /// Visual Studio, Azure PowerShell) may be used. Default is <c>false</c>, so a process running
         /// in Azure cannot silently fall back to a developer's personal identity.
@@ -81,9 +94,21 @@ namespace KeyVaultReferenceResolver
         /// tuning, proxy/transport configuration, diagnostics and service version pinning.
         /// </summary>
         /// <remarks>
-        /// <see cref="Azure.Core.DiagnosticsOptions.IsLoggingContentEnabled"/> is always forced to
-        /// <c>false</c> on the instance supplied here, so that enabling Azure SDK logging can never
-        /// write secret payloads to the log.
+        /// Two settings on the instance supplied here are always overridden.
+        /// <see cref="Azure.Core.DiagnosticsOptions.IsLoggingContentEnabled"/> is forced to
+        /// <c>false</c>, so that enabling Azure SDK logging can never write secret payloads to the
+        /// log. <see cref="SecretClientOptions.DisableChallengeResourceVerification"/> is forced to
+        /// <c>false</c>, so that a vault cannot use its authentication challenge to redirect token
+        /// acquisition at a resource of its choosing.
+        /// </remarks>
+        /// <remarks>
+        /// Note that suppressing content logging does not suppress request URIs. An
+        /// <c>AzureEventSourceListener</c> attached by the application logs the full request line
+        /// at Information, which includes the secret <i>name</i> - for example
+        /// <c>GET https://contoso.vault.azure.net/secrets/prod-sql-admin</c>. Secret values are
+        /// never logged, but the set of names amounts to an inventory of the vault, which is why
+        /// this library keeps names out of its own Information-level records. If that matters,
+        /// filter the <c>Azure-Core</c> event source rather than relying on this setting.
         /// </remarks>
         public SecretClientOptions? ClientOptions { get; set; }
 
@@ -149,6 +174,19 @@ namespace KeyVaultReferenceResolver
         public TimeSpan CacheTtl { get; set; } = System.Threading.Timeout.InfiniteTimeSpan;
 
         /// <summary>
+        /// Gets or sets the largest number of secrets held in the in-memory cache.
+        /// Default is 1024. Set to 0 for no limit.
+        /// </summary>
+        /// <remarks>
+        /// Nothing removes a cache entry on its own, so a caller that resolves references chosen
+        /// at runtime - rather than the fixed set read at startup - would otherwise grow the cache
+        /// without limit, holding every secret it has ever seen in memory for the life of the
+        /// process. Once the limit is reached, further secrets are not cached and a warning is
+        /// logged once; entries already cached are kept.
+        /// </remarks>
+        public int MaxCacheEntries { get; set; } = 1024;
+
+        /// <summary>
         /// Gets or sets the Key Vault DNS suffix used to build a URI from the
         /// <c>VaultName=</c> reference format. Defaults to <c>vault.azure.net</c>.
         /// </summary>
@@ -180,13 +218,41 @@ namespace KeyVaultReferenceResolver
         public TimeSpan ExpiryWarningThreshold { get; set; } = TimeSpan.FromDays(7);
 
         /// <summary>
-        /// Gets or sets the host suffixes a secret URI must end with to be resolved.
+        /// Gets or sets the exact vault hosts that may be contacted. Empty by default, which
+        /// leaves <see cref="AllowedVaultHostSuffixes"/> in charge.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the recommended production setting, and the only one that constrains resolution
+        /// to <i>your</i> vaults. <see cref="AllowedVaultHostSuffixes"/> establishes that a host is
+        /// a Key Vault, not whose: <c>https://someone-elses.vault.azure.net</c> satisfies the
+        /// default suffix list, and contacting it presents this application's token to a vault
+        /// under someone else's control, who can then replay it against the vaults this identity
+        /// legitimately has access to.
+        /// </para>
+        /// <para>
+        /// When this list is populated it is authoritative and the suffix list is not consulted.
+        /// Entries are compared to the whole host, case-insensitively - for example
+        /// <c>contoso-prod.vault.azure.net</c>.
+        /// </para>
+        /// </remarks>
+        public IList<string> AllowedVaultHosts { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Gets or sets the host suffixes a secret URI must match to be resolved.
         /// Defaults to <see cref="DefaultAllowedVaultHostSuffixes"/>.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Any configuration source that an attacker can influence would otherwise be able to point a
         /// reference at a host of their choosing, making the process issue an authenticated request to
         /// it during startup. Set to an empty list to disable the check.
+        /// </para>
+        /// <para>
+        /// An entry matches the whole host or a complete label boundary within it, so
+        /// <c>.vault.azure.net</c> and <c>vault.azure.net</c> behave identically and neither admits
+        /// <c>notvault.azure.net</c>. Ignored when <see cref="AllowedVaultHosts"/> is populated.
+        /// </para>
         /// </remarks>
         public IList<string> AllowedVaultHostSuffixes { get; set; } = new List<string>(DefaultAllowedVaultHostSuffixes);
 
@@ -207,6 +273,9 @@ namespace KeyVaultReferenceResolver
 
             if (MaxConcurrency < 1)
                 throw new ArgumentOutOfRangeException(nameof(MaxConcurrency), MaxConcurrency, "MaxConcurrency must be at least 1.");
+
+            if (MaxCacheEntries < 0)
+                throw new ArgumentOutOfRangeException(nameof(MaxCacheEntries), MaxCacheEntries, "MaxCacheEntries must be zero (unlimited) or positive.");
         }
     }
 }

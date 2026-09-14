@@ -13,6 +13,22 @@ namespace KeyVaultReferenceResolver.HashiCorp
     internal static partial class HashiCorpLog
     {
         [LoggerMessage(
+            EventId = HashiCorpLogEvents.VaultAddressUnverifiedId,
+            Level = LogLevel.Warning,
+            Message = "Vault address {VaultAddress} came from a configuration reference and could not be matched " +
+                      "against VaultAddress, AllowedVaultAddresses or VAULT_ADDR; contacting it anyway. Set " +
+                      "StrictVaultAddressValidation to reject it instead.")]
+        public static partial void VaultAddressUnverified(ILogger logger, string vaultAddress);
+
+        [LoggerMessage(
+            EventId = HashiCorpLogEvents.CacheFullId,
+            Level = LogLevel.Warning,
+            Message = "The secret cache holds its maximum of {Limit} entries; further secrets are resolved on " +
+                      "every call rather than cached. Raise MaxCacheEntries, or check whether references are " +
+                      "being generated at runtime.")]
+        public static partial void CacheFull(ILogger logger, int limit);
+
+        [LoggerMessage(
             EventId = HashiCorpLogEvents.CacheHitId,
             Level = LogLevel.Debug,
             Message = "Returning cached secret for: {SecretUri}")]
@@ -41,6 +57,21 @@ namespace KeyVaultReferenceResolver.HashiCorp
             Level = LogLevel.Error,
             Message = "Failed to resolve HashiCorp Vault reference for '{ConfigKey}'; the value has been set to null")]
         public static partial void ResolutionFailed(ILogger logger, Exception exception, string configKey);
+
+        [LoggerMessage(
+            EventId = HashiCorpLogEvents.ResolverNotLastSourceId,
+            Level = LogLevel.Error,
+            Message = "{Count} configuration source(s) were registered after the HashiCorp Vault reference " +
+                      "resolver. They override the resolved secrets and are never themselves resolved, so a " +
+                      "reference in one of them reaches the application as a literal string. Register the " +
+                      "resolver last.")]
+        public static partial void ResolverNotLastSource(ILogger logger, int count);
+
+        [LoggerMessage(
+            EventId = HashiCorpLogEvents.UnresolvedReferenceId,
+            Level = LogLevel.Error,
+            Message = "Configuration key {ConfigKey} still holds an unresolved HashiCorp Vault reference")]
+        public static partial void UnresolvedReference(ILogger logger, string configKey);
 
         [LoggerMessage(
             EventId = HashiCorpLogEvents.ResolutionSummaryId,

@@ -8,8 +8,8 @@
 
     <!-- Package Information -->
     <PackageId>KeyVaultReferenceResolver</PackageId>
-    <Version>1.3.0</Version>
-    <PackageReleaseNotes>Security release. Fail-closed resolution, vault host validation, hardened credential chain and on-demand cache refresh. Contains breaking behaviour changes - see CHANGELOG.md.</PackageReleaseNotes>
+    <Version>1.4.0</Version>
+    <PackageReleaseNotes>Security release. Vault host and address pinning, detection of references the resolver never saw, canonical cache keys and a bounded cache. No behaviour changes on upgrade - the tightenings are opt-in until 2.0. See CHANGELOG.md.</PackageReleaseNotes>
     <Authors>Gijs Walraven</Authors>
     <Company>Gijs Walraven</Company>
     <Description>Resolve Azure Key Vault references in Microsoft.Extensions.Configuration using both @Microsoft.KeyVault(SecretUri=...) and @Microsoft.KeyVault(VaultName=...;SecretName=...) formats. Works locally, in Docker, Kubernetes, and anywhere - not just Azure App Service.</Description>
@@ -35,6 +35,18 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Internal members are exposed to the test project so that the credential and
+         client-options builders can be asserted on directly. Without this the only way
+         to test them is through a live vault call. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>KeyVaultReferenceResolver.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>KeyVaultReferenceResolver.TestSupport</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>

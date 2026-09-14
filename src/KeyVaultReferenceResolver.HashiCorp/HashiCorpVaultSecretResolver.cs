@@ -38,6 +38,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
         private readonly ConcurrentDictionary<string, IVaultClient> _vaultClients = new ConcurrentDictionary<string, IVaultClient>();
         private readonly ConcurrentDictionary<string, CacheEntry> _secretCache = new ConcurrentDictionary<string, CacheEntry>();
         private bool _disposed;
+        private int _cacheFullReported;
 
         /// <summary>Separator for splitting a Vault secret path; static to avoid reallocating per call.</summary>
         private static readonly char[] PathSeparators = { '/' };
@@ -78,10 +79,16 @@ namespace KeyVaultReferenceResolver.HashiCorp
             if (string.IsNullOrWhiteSpace(secretUri))
                 throw new ArgumentException("Secret URI cannot be null or empty.", nameof(secretUri));
 
-            // Check cache first
+            // Parsed before the cache is consulted, so the key is the canonical form of the
+            // reference rather than however it happened to be spelled. Two references differing
+            // only in a trailing slash or host casing are one secret and must be one entry -
+            // otherwise InvalidateCache leaves a stale copy behind under the other spelling.
+            var (vaultAddress, secretPath, secretKey) = ParseSecretUri(secretUri);
+            var cacheKey = BuildCacheKey(vaultAddress, secretPath, secretKey);
+
             if (!forceRefresh &&
                 _options.EnableCaching &&
-                _secretCache.TryGetValue(secretUri, out var cached) &&
+                _secretCache.TryGetValue(cacheKey, out var cached) &&
                 !cached.IsExpired)
             {
                 if (_logger.IsEnabled(LogLevel.Debug))
@@ -92,7 +99,6 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 return cached.Value;
             }
 
-            var (vaultAddress, secretPath, secretKey) = ParseSecretUri(secretUri);
             var client = GetOrCreateClient(vaultAddress);
 
             using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
@@ -128,9 +134,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
                     // Cache the resolved secret
                     if (_options.EnableCaching)
-                    {
-                        _secretCache[secretUri] = new CacheEntry(secretValue, _options.CacheTtl);
-                    }
+                        StoreInCache(cacheKey, secretValue);
 
                     // Information level carries no secret key: these records are shipped to
                     // aggregated log stores, where key names such as "prod-db-root-password"
@@ -183,7 +187,48 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 return;
             }
 
-            _secretCache.TryRemove(secretUri, out _);
+            // Normalised the same way as on insertion, so eviction is not defeated by the caller
+            // spelling the reference differently from whoever resolved it.
+            try
+            {
+                var (vaultAddress, secretPath, secretKey) = ParseSecretUri(secretUri);
+                _secretCache.TryRemove(BuildCacheKey(vaultAddress, secretPath, secretKey), out _);
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
+
+        /// <summary>
+        /// Builds the canonical cache key for a parsed reference.
+        /// </summary>
+        private static string BuildCacheKey(string vaultAddress, string secretPath, string secretKey)
+        {
+            // The path and key are case-sensitive in Vault, so only the address is normalised.
+            return $"{NormalizeVaultAddress(vaultAddress)}|{secretPath}|{secretKey}";
+        }
+
+        /// <summary>
+        /// Adds a resolved secret to the cache, up to <see cref="HashiCorpVaultResolverOptions.MaxCacheEntries"/>.
+        /// </summary>
+        /// <remarks>
+        /// Nothing removes an entry on its own, so a caller resolving references chosen at runtime
+        /// could grow the cache without limit. Past the limit further secrets are not cached rather
+        /// than evicting one that is probably still in use.
+        /// </remarks>
+        private void StoreInCache(string cacheKey, string secretValue)
+        {
+            var limit = _options.MaxCacheEntries;
+
+            if (limit > 0 && _secretCache.Count >= limit && !_secretCache.ContainsKey(cacheKey))
+            {
+                if (Interlocked.Exchange(ref _cacheFullReported, 1) == 0)
+                    HashiCorpLog.CacheFull(_logger, limit);
+
+                return;
+            }
+
+            _secretCache[cacheKey] = new CacheEntry(secretValue, _options.CacheTtl);
         }
 
         /// <summary>
@@ -224,6 +269,31 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 return false;
 
             return AttributePattern.IsMatch(value) || UriPattern.IsMatch(value);
+        }
+
+        /// <summary>
+        /// Enumerates the <c>@HashiCorp.Vault(...)</c> references embedded in a value.
+        /// </summary>
+        internal static IEnumerable<string> EnumerateAttributeReferences(string value)
+        {
+            foreach (Match match in AttributePattern.Matches(value))
+                yield return match.Value;
+        }
+
+        /// <summary>
+        /// Reports whether the whole value is a <c>hashicorp://host/path#key</c> reference.
+        /// </summary>
+        internal static bool IsWholeValueUriReference(string value)
+        {
+            return UriPattern.IsMatch(value);
+        }
+
+        /// <summary>
+        /// Replaces each embedded <c>@HashiCorp.Vault(...)</c> reference using the given selector.
+        /// </summary>
+        internal static string ReplaceAttributeReferences(string value, Func<string, string> resolve)
+        {
+            return AttributePattern.Replace(value, match => resolve(match.Value));
         }
 
         /// <summary>
@@ -353,7 +423,13 @@ namespace KeyVaultReferenceResolver.HashiCorp
         // Note: VaultSharp does not currently support CancellationToken (see https://github.com/rajanadar/VaultSharp/issues/368)
         // The cancellationToken parameter is kept for future compatibility when VaultSharp adds support.
         // Timeout is enforced at the caller level via CancellationTokenSource.CancelAfter().
-        private async Task<string> ReadSecretAsync(IVaultClient client, string secretPath, string secretKey, CancellationToken cancellationToken)
+        /// <remarks>
+        /// Overridable so the surrounding behaviour - caching, key normalisation, TTL expiry,
+        /// forced refresh, re-authentication - can be exercised without a live Vault. For a
+        /// credential cache that is the part most worth testing. Callers should not need to
+        /// override it.
+        /// </remarks>
+        protected virtual async Task<string> ReadSecretAsync(IVaultClient client, string secretPath, string secretKey, CancellationToken cancellationToken)
         {
             // Determine mount path and actual path
             var (mountPath, actualPath) = SplitPath(secretPath);
@@ -514,8 +590,11 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// The address in a reference comes from the configuration value itself. Any source that can
         /// influence configuration could otherwise point it at an attacker-controlled host and have
         /// the resolver's ambient Vault credential sent there.
+        /// Internal rather than private so the trust decision can be asserted on directly; testing
+        /// it through <see cref="ResolveSecretAsync(string, CancellationToken)"/> would mean the
+        /// accepted cases go on to attempt a real login.
         /// </remarks>
-        private string ResolveTrustedAddress(string vaultAddress)
+        internal string ResolveTrustedAddress(string vaultAddress)
         {
             // No address in the reference: use the configured one.
             if (string.IsNullOrWhiteSpace(vaultAddress))
@@ -534,19 +613,44 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     $"{nameof(HashiCorpVaultResolverOptions.VaultAddress)}. Refusing to authenticate against an unexpected vault.");
             }
 
+            // An explicit allow-list is authoritative when it has been populated.
             var allowed = _options.AllowedVaultAddresses;
-            if (allowed == null || allowed.Count == 0)
-                return vaultAddress;
-
-            foreach (var candidate in allowed)
+            if (allowed != null && allowed.Count > 0)
             {
-                if (!string.IsNullOrWhiteSpace(candidate) && AddressesMatch(vaultAddress, candidate))
-                    return vaultAddress;
+                foreach (var candidate in allowed)
+                {
+                    if (!string.IsNullOrWhiteSpace(candidate) && AddressesMatch(vaultAddress, candidate))
+                        return vaultAddress;
+                }
+
+                throw new InvalidOperationException(
+                    $"Vault address '{vaultAddress}' in a configuration reference is not listed in " +
+                    $"{nameof(HashiCorpVaultResolverOptions.AllowedVaultAddresses)}.");
             }
 
-            throw new InvalidOperationException(
-                $"Vault address '{vaultAddress}' in a configuration reference is not listed in " +
-                $"{nameof(HashiCorpVaultResolverOptions.AllowedVaultAddresses)}.");
+            // Nothing was configured in process, so the only remaining candidate is VAULT_ADDR.
+            // Treating it as a pin is what closes the most common deployment shape - address from
+            // the environment, no allow-list - in which any host a configuration value happens to
+            // name would be contacted with this process's Vault credential.
+            var fromEnvironment = HashiCorpVaultResolverOptions.GetVaultAddressFromEnvironment();
+
+            if (!string.IsNullOrWhiteSpace(fromEnvironment) && AddressesMatch(vaultAddress, fromEnvironment!))
+                return vaultAddress;
+
+            if (_options.StrictVaultAddressValidation)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(fromEnvironment)
+                        ? $"Vault address '{vaultAddress}' comes from a configuration reference and there is nothing " +
+                          $"to validate it against. Set {nameof(HashiCorpVaultResolverOptions.VaultAddress)} or " +
+                          $"{nameof(HashiCorpVaultResolverOptions.AllowedVaultAddresses)}, or unset " +
+                          $"{nameof(HashiCorpVaultResolverOptions.StrictVaultAddressValidation)} to allow it."
+                        : $"Vault address '{vaultAddress}' in a configuration reference does not match VAULT_ADDR " +
+                          $"('{fromEnvironment}'). Refusing to authenticate against an unexpected vault.");
+            }
+
+            HashiCorpLog.VaultAddressUnverified(_logger, vaultAddress);
+            return vaultAddress;
         }
 
         private static bool AddressesMatch(string left, string right)

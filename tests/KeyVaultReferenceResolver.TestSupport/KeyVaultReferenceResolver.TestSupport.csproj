@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Test doubles shared by the test projects. Deliberately not packable and not shipped: a
+    resolver that can hand an application an empty string for every secret it does not know has
+    no business being reachable from production code via a dependency-injection mistake.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KeyVaultReferenceResolver\KeyVaultReferenceResolver.csproj" />
+  </ItemGroup>
+
+</Project>

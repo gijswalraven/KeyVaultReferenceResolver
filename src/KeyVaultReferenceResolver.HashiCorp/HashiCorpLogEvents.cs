@@ -32,14 +32,26 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// <summary>Numeric ID of <see cref="KvVersionProbe"/>.</summary>
         public const int KvVersionProbeId = 2005;
 
+        /// <summary>Numeric ID of <see cref="ResolverNotLastSource"/>.</summary>
+        public const int ResolverNotLastSourceId = 2006;
+
+        /// <summary>Numeric ID of <see cref="UnresolvedReference"/>.</summary>
+        public const int UnresolvedReferenceId = 2007;
+
         /// <summary>Numeric ID of <see cref="AuthMethodSelected"/>.</summary>
         public const int AuthMethodSelectedId = 2101;
 
         /// <summary>Numeric ID of <see cref="Reauthenticated"/>.</summary>
         public const int ReauthenticatedId = 2102;
 
+        /// <summary>Numeric ID of <see cref="VaultAddressUnverified"/>.</summary>
+        public const int VaultAddressUnverifiedId = 2103;
+
         /// <summary>Numeric ID of <see cref="CacheHit"/>.</summary>
         public const int CacheHitId = 2201;
+
+        /// <summary>Numeric ID of <see cref="CacheFull"/>.</summary>
+        public const int CacheFullId = 2202;
 
         /// <summary>A single secret was read from Vault. Debug.</summary>
         public static readonly EventId SecretResolved = new EventId(SecretResolvedId, nameof(SecretResolved));
@@ -62,7 +74,34 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// <summary>Vault rejected the login token, so the client re-authenticated. Information.</summary>
         public static readonly EventId Reauthenticated = new EventId(ReauthenticatedId, nameof(Reauthenticated));
 
+        /// <summary>
+        /// A vault address taken from a configuration reference could not be matched against a
+        /// trusted address and was contacted anyway. Warning.
+        /// </summary>
+        /// <remarks>
+        /// Worth alerting on: it means the host this process sent its Vault credential to was
+        /// decided by a configuration value rather than by deployment configuration. Set
+        /// <see cref="HashiCorpVaultResolverOptions.StrictVaultAddressValidation"/> to turn it
+        /// into a failure.
+        /// </remarks>
+        public static readonly EventId VaultAddressUnverified = new EventId(VaultAddressUnverifiedId, nameof(VaultAddressUnverified));
+
+        /// <summary>
+        /// A configuration source was registered after the resolver, so it overrides the resolved
+        /// secrets and is itself never resolved. Error.
+        /// </summary>
+        public static readonly EventId ResolverNotLastSource = new EventId(ResolverNotLastSourceId, nameof(ResolverNotLastSource));
+
+        /// <summary>A configuration value still holds an unresolved Vault reference. Error.</summary>
+        public static readonly EventId UnresolvedReference = new EventId(UnresolvedReferenceId, nameof(UnresolvedReference));
+
         /// <summary>A secret was served from the in-memory cache. Debug.</summary>
         public static readonly EventId CacheHit = new EventId(CacheHitId, nameof(CacheHit));
+
+        /// <summary>
+        /// The secret cache reached MaxCacheEntries and stopped accepting new secrets. Warning,
+        /// raised once per resolver.
+        /// </summary>
+        public static readonly EventId CacheFull = new EventId(CacheFullId, nameof(CacheFull));
     }
 }

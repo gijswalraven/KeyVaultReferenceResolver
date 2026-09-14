@@ -22,6 +22,14 @@ namespace KeyVaultReferenceResolver
         public static partial void CacheHit(ILogger logger, string secretUri);
 
         [LoggerMessage(
+            EventId = LogEvents.CacheFullId,
+            Level = LogLevel.Warning,
+            Message = "The secret cache holds its maximum of {Limit} entries; further secrets are resolved on " +
+                      "every call rather than cached. Raise MaxCacheEntries, or check whether references are " +
+                      "being generated at runtime.")]
+        public static partial void CacheFull(ILogger logger, int limit);
+
+        [LoggerMessage(
             EventId = LogEvents.SecretResolvedId,
             Level = LogLevel.Debug,
             Message = "Resolving secret {SecretName} from vault {VaultUri}")]
@@ -62,6 +70,20 @@ namespace KeyVaultReferenceResolver
             Level = LogLevel.Error,
             Message = "Failed to resolve Key Vault reference for '{ConfigKey}'; the value has been set to null")]
         public static partial void ResolutionFailed(ILogger logger, Exception exception, string configKey);
+
+        [LoggerMessage(
+            EventId = LogEvents.ResolverNotLastSourceId,
+            Level = LogLevel.Error,
+            Message = "{Count} configuration source(s) were registered after the Key Vault reference resolver. " +
+                      "They override the resolved secrets and are never themselves resolved, so a reference in " +
+                      "one of them reaches the application as a literal string. Register the resolver last.")]
+        public static partial void ResolverNotLastSource(ILogger logger, int count);
+
+        [LoggerMessage(
+            EventId = LogEvents.UnresolvedReferenceId,
+            Level = LogLevel.Error,
+            Message = "Configuration key '{ConfigKey}' still holds an unresolved Key Vault reference")]
+        public static partial void UnresolvedReference(ILogger logger, string configKey);
 
         [LoggerMessage(
             EventId = LogEvents.ResolutionSummaryId,

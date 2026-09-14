@@ -377,11 +377,17 @@
       "keyvaultreferenceresolver.hashicorp": {
         "type": "Project",
         "dependencies": {
-          "KeyVaultReferenceResolver": "[2.0.0, )",
+          "KeyVaultReferenceResolver": "[1.3.0, )",
           "Microsoft.Extensions.Configuration": "[10.0.12, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
           "System.Text.Json": "[10.0.12, )",
           "VaultSharp": "[1.17.5.1, )"
+        }
+      },
+      "keyvaultreferenceresolver.testsupport": {
+        "type": "Project",
+        "dependencies": {
+          "KeyVaultReferenceResolver": "[1.3.0, )"
         }
       }
     }

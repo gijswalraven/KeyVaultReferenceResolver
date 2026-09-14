@@ -8,8 +8,8 @@
 
     <!-- Package Information -->
     <PackageId>KeyVaultReferenceResolver.HashiCorp</PackageId>
-    <Version>1.3.0</Version>
-    <PackageReleaseNotes>Security release. Fail-closed resolution, vault host validation, hardened credential chain and on-demand cache refresh. Contains breaking behaviour changes - see CHANGELOG.md.</PackageReleaseNotes>
+    <Version>1.4.0</Version>
+    <PackageReleaseNotes>Security release. Vault host and address pinning, detection of references the resolver never saw, canonical cache keys and a bounded cache. No behaviour changes on upgrade - the tightenings are opt-in until 2.0. See CHANGELOG.md.</PackageReleaseNotes>
     <Authors>Gijs Walraven</Authors>
     <Company>Gijs Walraven</Company>
     <Description>HashiCorp Vault support for KeyVaultReferenceResolver. Resolve secrets from HashiCorp Vault in Microsoft.Extensions.Configuration using @HashiCorp.Vault(...) or hashicorp:// URI format. Supports Token, AppRole, and Kubernetes authentication.</Description>
@@ -43,6 +43,15 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KeyVaultReferenceResolver\KeyVaultReferenceResolver.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Internal members are exposed to the test project so that the credential and
+         client-options builders can be asserted on directly. Without this the only way
+         to test them is through a live vault call. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>KeyVaultReferenceResolver.HashiCorp.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>
