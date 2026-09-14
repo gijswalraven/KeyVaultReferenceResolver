@@ -1,10 +1,10 @@
 using System;
-using FluentAssertions;
 using KeyVaultReferenceResolver.HashiCorp.Authentication;
 using Xunit;
 
 namespace KeyVaultReferenceResolver.HashiCorp.Tests
 {
+    [Collection("VaultEnvironment")]
     public class HashiCorpVaultResolverOptionsTests
     {
         [Fact]
@@ -12,15 +12,15 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var options = new HashiCorpVaultResolverOptions();
 
-            options.VaultAddress.Should().BeNull();
-            options.AuthMethod.Should().BeNull();
-            options.KubernetesRoleName.Should().BeNull();
-            options.MountPath.Should().Be("secret");
-            options.KvVersion.Should().BeNull();
-            options.ThrowOnResolveFailure.Should().BeTrue();
-            options.Timeout.Should().Be(TimeSpan.FromSeconds(30));
-            options.EnableCaching.Should().BeTrue();
-            options.Namespace.Should().BeNull();
+            Assert.Null(options.VaultAddress);
+            Assert.Null(options.AuthMethod);
+            Assert.Null(options.KubernetesRoleName);
+            Assert.Equal("secret", options.MountPath);
+            Assert.Null(options.KvVersion);
+            Assert.True(options.ThrowOnResolveFailure);
+            Assert.Equal(TimeSpan.FromSeconds(30), options.Timeout);
+            Assert.True(options.EnableCaching);
+            Assert.Null(options.Namespace);
         }
 
         [Fact]
@@ -33,7 +33,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = options.GetEffectiveVaultAddress();
 
-            result.Should().Be("https://vault.example.com");
+            Assert.Equal("https://vault.example.com", result);
         }
 
         [Fact]
@@ -48,7 +48,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var result = options.GetEffectiveVaultAddress();
 
-                result.Should().Be("https://env-vault.example.com");
+                Assert.Equal("https://env-vault.example.com", result);
             }
             finally
             {
@@ -71,7 +71,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var result = options.GetEffectiveVaultAddress();
 
-                result.Should().Be("https://explicit-vault.example.com");
+                Assert.Equal("https://explicit-vault.example.com", result);
             }
             finally
             {
@@ -91,8 +91,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var act = () => options.GetEffectiveVaultAddress();
 
-                act.Should().Throw<InvalidOperationException>()
-                    .WithMessage("*Vault address not configured*");
+                var ex = Assert.Throws<InvalidOperationException>(act);
+                Assert.Contains("Vault address not configured", ex.Message);
             }
             finally
             {
@@ -111,7 +111,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = options.GetEffectiveAuthMethod();
 
-            result.Should().BeSameAs(tokenAuth);
+            Assert.Same(tokenAuth, result);
         }
 
         [Fact]
@@ -130,7 +130,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var result = options.GetEffectiveAuthMethod();
 
-                result.Should().BeOfType<TokenAuthMethod>();
+                Assert.IsType<TokenAuthMethod>(result);
             }
             finally
             {
@@ -156,7 +156,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var result = options.GetEffectiveAuthMethod();
 
-                result.Should().BeOfType<AppRoleAuthMethod>();
+                Assert.IsType<AppRoleAuthMethod>(result);
             }
             finally
             {
@@ -182,8 +182,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
                 var act = () => options.GetEffectiveAuthMethod();
 
-                act.Should().Throw<InvalidOperationException>()
-                    .WithMessage("*No authentication method configured*");
+                var ex = Assert.Throws<InvalidOperationException>(act);
+                Assert.Contains("No authentication method configured", ex.Message);
             }
             finally
             {
@@ -201,7 +201,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
                 Timeout = TimeSpan.FromMinutes(2)
             };
 
-            options.Timeout.Should().Be(TimeSpan.FromMinutes(2));
+            Assert.Equal(TimeSpan.FromMinutes(2), options.Timeout);
         }
 
         [Fact]
@@ -212,7 +212,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
                 MountPath = "kv"
             };
 
-            options.MountPath.Should().Be("kv");
+            Assert.Equal("kv", options.MountPath);
         }
 
         [Fact]
@@ -223,7 +223,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
                 KvVersion = 1
             };
 
-            options.KvVersion.Should().Be(1);
+            Assert.Equal(1, options.KvVersion);
         }
 
         [Fact]
@@ -234,7 +234,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
                 Namespace = "my-namespace"
             };
 
-            options.Namespace.Should().Be("my-namespace");
+            Assert.Equal("my-namespace", options.Namespace);
         }
     }
 }

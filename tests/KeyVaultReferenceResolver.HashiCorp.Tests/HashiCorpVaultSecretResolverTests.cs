@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Xunit;
 
 namespace KeyVaultReferenceResolver.HashiCorp.Tests
@@ -12,7 +11,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void IsHashiCorpVaultReference_ValidReferences_ReturnsTrue(string value)
         {
             var result = HashiCorpVaultSecretResolver.IsHashiCorpVaultReference(value);
-            result.Should().BeTrue();
+            Assert.True(result);
         }
 
         [Theory]
@@ -25,7 +24,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void IsHashiCorpVaultReference_InvalidReferences_ReturnsFalse(string? value)
         {
             var result = HashiCorpVaultSecretResolver.IsHashiCorpVaultReference(value);
-            result.Should().BeFalse();
+            Assert.False(result);
         }
 
         [Fact]
@@ -35,10 +34,10 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(value);
 
-            result.Should().NotBeNull();
-            result!.Value.vaultAddress.Should().Be("https://vault.example.com");
-            result.Value.secretPath.Should().Be("secret/data/myapp");
-            result.Value.secretKey.Should().Be("password");
+            Assert.NotNull(result);
+            Assert.Equal("https://vault.example.com", result!.Value.vaultAddress);
+            Assert.Equal("secret/data/myapp", result.Value.secretPath);
+            Assert.Equal("password", result.Value.secretKey);
         }
 
         [Fact]
@@ -48,31 +47,31 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(value);
 
-            result.Should().NotBeNull();
-            result!.Value.vaultAddress.Should().Be("https://vault.example.com");
-            result.Value.secretPath.Should().Be("secret/data/myapp");
-            result.Value.secretKey.Should().Be("password");
+            Assert.NotNull(result);
+            Assert.Equal("https://vault.example.com", result!.Value.vaultAddress);
+            Assert.Equal("secret/data/myapp", result.Value.secretPath);
+            Assert.Equal("password", result.Value.secretKey);
         }
 
         [Fact]
         public void TryExtractSecretInfo_InvalidValue_ReturnsNull()
         {
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo("not-a-vault-reference");
-            result.Should().BeNull();
+            Assert.Null(result);
         }
 
         [Fact]
         public void TryExtractSecretInfo_NullValue_ReturnsNull()
         {
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(null);
-            result.Should().BeNull();
+            Assert.Null(result);
         }
 
         [Fact]
         public void TryExtractSecretInfo_EmptyValue_ReturnsNull()
         {
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo("");
-            result.Should().BeNull();
+            Assert.Null(result);
         }
 
         [Theory]
@@ -82,8 +81,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(value);
 
-            result.Should().NotBeNull();
-            result!.Value.vaultAddress.Should().Be(expectedAddress);
+            Assert.NotNull(result);
+            Assert.Equal(expectedAddress, result!.Value.vaultAddress);
         }
 
         [Fact]
@@ -93,8 +92,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(value);
 
-            result.Should().NotBeNull();
-            result!.Value.vaultAddress.Should().Be("https://vault.example.com");
+            Assert.NotNull(result);
+            Assert.Equal("https://vault.example.com", result!.Value.vaultAddress);
         }
 
         #region Path Parsing Edge Cases
@@ -110,8 +109,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(value);
 
-            result.Should().NotBeNull();
-            result!.Value.secretPath.Should().Be(expectedPath);
+            Assert.NotNull(result);
+            Assert.Equal(expectedPath, result!.Value.secretPath);
         }
 
         [Theory]
@@ -122,8 +121,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(uri);
 
-            result.Should().NotBeNull();
-            result!.Value.secretPath.Should().Be(expectedPath);
+            Assert.NotNull(result);
+            Assert.Equal(expectedPath, result!.Value.secretPath);
         }
 
         [Theory]
@@ -134,8 +133,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(uri);
 
-            result.Should().NotBeNull();
-            result!.Value.secretPath.Should().Be(expectedPath);
+            Assert.NotNull(result);
+            Assert.Equal(expectedPath, result!.Value.secretPath);
         }
 
         [Theory]
@@ -145,7 +144,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void TryExtractSecretInfo_SpecialCharactersInKey_ExtractsCorrectly(string value)
         {
             var result = HashiCorpVaultSecretResolver.TryExtractSecretInfo(value);
-            result.Should().NotBeNull();
+            Assert.NotNull(result);
         }
 
         #endregion

@@ -1,5 +1,4 @@
 using System;
-using FluentAssertions;
 using Xunit;
 
 namespace KeyVaultReferenceResolver.Tests;
@@ -20,7 +19,7 @@ public class KeyVaultReferenceResolutionExceptionTests
             TestSecretUri);
 
         // Assert
-        exception.Message.Should().Be(TestMessage);
+        Assert.Equal(TestMessage, exception.Message);
     }
 
     [Fact]
@@ -33,7 +32,7 @@ public class KeyVaultReferenceResolutionExceptionTests
             TestSecretUri);
 
         // Assert
-        exception.ConfigurationKey.Should().Be(TestConfigKey);
+        Assert.Equal(TestConfigKey, exception.ConfigurationKey);
     }
 
     [Fact]
@@ -46,7 +45,7 @@ public class KeyVaultReferenceResolutionExceptionTests
             TestSecretUri);
 
         // Assert
-        exception.SecretUri.Should().Be(TestSecretUri);
+        Assert.Equal(TestSecretUri, exception.SecretUri);
     }
 
     [Fact]
@@ -63,7 +62,7 @@ public class KeyVaultReferenceResolutionExceptionTests
             innerException);
 
         // Assert
-        exception.InnerException.Should().BeSameAs(innerException);
+        Assert.Same(innerException, exception.InnerException);
     }
 
     [Fact]
@@ -76,6 +75,6 @@ public class KeyVaultReferenceResolutionExceptionTests
             TestSecretUri);
 
         // Assert
-        exception.InnerException.Should().BeNull();
+        Assert.Null(exception.InnerException);
     }
 }

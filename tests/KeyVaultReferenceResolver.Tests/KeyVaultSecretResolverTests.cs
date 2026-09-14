@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -18,7 +17,7 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Assert - resolver should be created without throwing
-        resolver.Should().NotBeNull();
+        Assert.NotNull(resolver);
     }
 
     [Fact]
@@ -28,7 +27,7 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver(null);
 
         // Assert - resolver should be created without throwing
-        resolver.Should().NotBeNull();
+        Assert.NotNull(resolver);
     }
 
     [Fact]
@@ -41,7 +40,7 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver(options, null);
 
         // Assert - resolver should be created without throwing
-        resolver.Should().NotBeNull();
+        Assert.NotNull(resolver);
     }
 
     [Fact]
@@ -59,7 +58,7 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver(options, mockLogger.Object);
 
         // Assert
-        resolver.Should().NotBeNull();
+        Assert.NotNull(resolver);
     }
 
     #endregion
@@ -73,11 +72,11 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(null!);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(null!, TestContext.Current.CancellationToken);
 
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithParameterName("secretUri");
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Equal("secretUri", ex.ParamName);
     }
 
     [Fact]
@@ -87,11 +86,11 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(string.Empty);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(string.Empty, TestContext.Current.CancellationToken);
 
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithParameterName("secretUri");
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Equal("secretUri", ex.ParamName);
     }
 
     [Fact]
@@ -101,11 +100,11 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync("   ");
+        Func<Task> act = async () => await resolver.ResolveSecretAsync("   ", TestContext.Current.CancellationToken);
 
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithParameterName("secretUri");
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Equal("secretUri", ex.ParamName);
     }
 
     [Fact]
@@ -115,10 +114,10 @@ public class KeyVaultSecretResolverTests
         var resolver = new KeyVaultSecretResolver();
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync("not-a-valid-uri");
+        Func<Task> act = async () => await resolver.ResolveSecretAsync("not-a-valid-uri", TestContext.Current.CancellationToken);
 
         // Assert
-        await act.Should().ThrowAsync<UriFormatException>();
+        await Assert.ThrowsAsync<UriFormatException>(act);
     }
 
     [Fact]
@@ -129,12 +128,12 @@ public class KeyVaultSecretResolverTests
         var uri = "https://myvault.vault.azure.net/keys/my-key";
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri, TestContext.Current.CancellationToken);
 
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithMessage("*Invalid Key Vault secret URI format*")
-            .WithParameterName("secretUri");
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Contains("Invalid Key Vault secret URI format", ex.Message);
+        Assert.Equal("secretUri", ex.ParamName);
     }
 
     [Fact]
@@ -145,12 +144,12 @@ public class KeyVaultSecretResolverTests
         var uri = "https://myvault.vault.azure.net/invalid/path";
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri, TestContext.Current.CancellationToken);
 
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithMessage("*Invalid Key Vault secret URI format*")
-            .WithParameterName("secretUri");
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Contains("Invalid Key Vault secret URI format", ex.Message);
+        Assert.Equal("secretUri", ex.ParamName);
     }
 
     [Fact]
@@ -161,12 +160,12 @@ public class KeyVaultSecretResolverTests
         var uri = "https://myvault.vault.azure.net/secrets";
 
         // Act
-        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri);
+        Func<Task> act = async () => await resolver.ResolveSecretAsync(uri, TestContext.Current.CancellationToken);
 
         // Assert
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithMessage("*Invalid Key Vault secret URI format*")
-            .WithParameterName("secretUri");
+        var ex = await Assert.ThrowsAsync<ArgumentException>(act);
+        Assert.Contains("Invalid Key Vault secret URI format", ex.Message);
+        Assert.Equal("secretUri", ex.ParamName);
     }
 
     #endregion
@@ -183,8 +182,8 @@ public class KeyVaultSecretResolverTests
         Action act = () => resolver.ResolveSecret(null!);
 
         // Assert
-        act.Should().Throw<ArgumentException>()
-            .WithParameterName("secretUri");
+        var ex = Assert.Throws<ArgumentException>(act);
+        Assert.Equal("secretUri", ex.ParamName);
     }
 
     [Fact]
@@ -197,8 +196,8 @@ public class KeyVaultSecretResolverTests
         Action act = () => resolver.ResolveSecret(string.Empty);
 
         // Assert
-        act.Should().Throw<ArgumentException>()
-            .WithParameterName("secretUri");
+        var ex = Assert.Throws<ArgumentException>(act);
+        Assert.Equal("secretUri", ex.ParamName);
     }
 
     [Fact]
@@ -212,8 +211,8 @@ public class KeyVaultSecretResolverTests
         Action act = () => resolver.ResolveSecret(uri);
 
         // Assert
-        act.Should().Throw<ArgumentException>()
-            .WithMessage("*Invalid Key Vault secret URI format*");
+        var ex = Assert.Throws<ArgumentException>(act);
+        Assert.Contains("Invalid Key Vault secret URI format", ex.Message);
     }
 
     #endregion

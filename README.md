@@ -1,6 +1,6 @@
 # 🔐 KeyVaultReferenceResolver
 
-[![NuGet](https://img.shields.io/badge/nuget-v1.0.0-blue.svg)](https://www.nuget.org/packages/KeyVaultReferenceResolver)
+[![NuGet](https://img.shields.io/badge/nuget-v1.2.0-blue.svg)](https://www.nuget.org/packages/KeyVaultReferenceResolver)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -404,15 +404,27 @@ KeyVaultReferenceResolver/
 | Dependency | Version |
 |------------|---------|
 | .NET | 8.0+ |
-| Azure.Identity | 1.13.1+ |
-| Azure.Security.KeyVault.Secrets | 4.7.0+ |
-| Microsoft.Extensions.Configuration | 8.0.0+ |
+| Azure.Identity | 1.21.0+ |
+| Azure.Security.KeyVault.Secrets | 4.11.1+ |
+| Microsoft.Extensions.Configuration | 10.0.12+ |
 
 ---
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Building from source
+
+Building and testing this repo requires the **.NET 10 SDK** (pinned in `global.json`).
+This is a contributor requirement only — the published packages target
+`netstandard2.0` and consumers still only need .NET 8.0+, as listed under
+[Requirements](#-requirements).
+
+```bash
+dotnet build
+dotnet test
+```
 
 ---
 

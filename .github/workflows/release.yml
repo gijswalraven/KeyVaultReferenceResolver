@@ -14,10 +14,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The release tag and the csproj <Version> are maintained by hand, so a
+      # mismatch would publish a package version that does not match the tag.
+      # NuGet does not allow true deletion, so fail before anything is pushed.
+      - name: Verify tag matches package version
+        env:
+          # Passed via env rather than interpolated into the script: tag names can
+          # legally contain shell metacharacters, which would splice into the run block.
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          tag="$RELEASE_TAG"
+          csproj="src/KeyVaultReferenceResolver/KeyVaultReferenceResolver.csproj"
+          version="$(grep -oPm1 '(?<=<Version>)[^<]+' "$csproj")"
+          if [ -z "$version" ]; then
+            echo "::error::Could not read <Version> from $csproj"
+            exit 1
+          fi
+          if [ "$tag" != "v$version" ]; then
+            echo "::error::Release tag '$tag' does not match <Version> '$version' in $csproj (expected tag 'v$version')"
+            exit 1
+          fi
+          echo "Tag '$tag' matches package version '$version'."
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Restore dependencies
         run: dotnet restore
@@ -32,12 +56,13 @@ jobs:
         run: dotnet pack --no-build -c Release -o ./artifacts
 
       - name: Publish to NuGet.org
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
 
       - name: Publish to GitHub Packages
         continue-on-error: true
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json --skip-duplicate
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key "$GITHUB_TOKEN" --source "https://nuget.pkg.github.com/$REPOSITORY_OWNER/index.json" --skip-duplicate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}

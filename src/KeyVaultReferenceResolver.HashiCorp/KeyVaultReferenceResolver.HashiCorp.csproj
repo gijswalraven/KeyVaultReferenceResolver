@@ -8,7 +8,7 @@
 
     <!-- Package Information -->
     <PackageId>KeyVaultReferenceResolver.HashiCorp</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>KeyVaultReferenceResolver Contributors</Authors>
     <Company>KeyVaultReferenceResolver Contributors</Company>
     <Description>HashiCorp Vault support for KeyVaultReferenceResolver. Resolve secrets from HashiCorp Vault in Microsoft.Extensions.Configuration using @HashiCorp.Vault(...) or hashicorp:// URI format. Supports Token, AppRole, and Kubernetes authentication.</Description>
@@ -33,9 +33,11 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="VaultSharp" Version="1.17.5.1" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+    <!-- Explicit pin: overrides VaultSharp's transitive 8.0.4, which has a High severity advisory (GHSA-8g4q-xg66-9fp4) -->
+    <PackageReference Include="System.Text.Json" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>
