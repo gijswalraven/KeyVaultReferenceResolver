@@ -194,11 +194,7 @@ namespace KeyVaultReferenceResolver
             builder.AddInMemoryCollection(resolvedValues);
 
             var succeeded = resolvedValues.Count(pair => pair.Value != null);
-            logger.LogInformation(
-                LogEvents.ResolutionSummary,
-                "Resolved {Count} of {Total} configuration value(s) containing Key Vault reference(s)",
-                succeeded,
-                resolvedValues.Count);
+            Log.ResolutionSummary(logger, succeeded, resolvedValues.Count);
 
             return builder;
         }
@@ -210,7 +206,7 @@ namespace KeyVaultReferenceResolver
         /// </summary>
         private static string? SubstituteReferences(
             string originalValue,
-            IReadOnlyDictionary<string, string?> secrets,
+            Dictionary<string, string?> secrets,
             string vaultDnsSuffix)
         {
             var failed = false;
@@ -288,7 +284,11 @@ namespace KeyVaultReferenceResolver
                 // which configuration keys hold credentials, and key names routinely embed
                 // tenant or customer identifiers (Clients:AcmeCorp:ApiKey). The aggregate count
                 // is logged at Information instead.
-                logger.LogDebug(LogEvents.SecretResolved, "Resolved Key Vault reference: {SecretUri}", MaskUri(secretUri));
+                if (logger.IsEnabled(LogLevel.Debug))
+                {
+                    var maskedUri = MaskUri(secretUri);
+                    Log.ReferenceResolved(logger, maskedUri);
+                }
             }
             catch (Exception ex)
             {
@@ -304,11 +304,7 @@ namespace KeyVaultReferenceResolver
                     secretUri,
                     ex));
 
-                logger.LogError(
-                    LogEvents.ResolutionFailed,
-                    ex,
-                    "Failed to resolve Key Vault reference for '{ConfigKey}'; the value has been set to null",
-                    configKey);
+                Log.ResolutionFailed(logger, ex, configKey);
             }
             finally
             {

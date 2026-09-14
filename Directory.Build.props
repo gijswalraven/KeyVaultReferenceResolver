@@ -1,0 +1,38 @@
+<Project>
+
+  <!--
+    Shared build settings for every project in the repository.
+    Kept here rather than duplicated per csproj so that "we run static analysis on our
+    secrets library" is demonstrable from one place rather than asserted.
+  -->
+
+  <PropertyGroup>
+    <!-- Static analysis. Enabled repository-wide: this library sits in the credential path,
+         so a nullable or correctness warning here matters more than in an average project. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-Recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+
+    <!-- Warnings fail the build in Release, so nothing ships with an unreviewed warning.
+         Debug stays warning-only, so local iteration is not blocked mid-edit. -->
+    <TreatWarningsAsErrors Condition="'$(Configuration)' == 'Release'">true</TreatWarningsAsErrors>
+
+    <!-- Vulnerable and deprecated package advisories are surfaced for transitive packages too.
+         CI additionally fails on the vulnerable-package listing, since these arrive as warnings
+         during restore rather than as build errors. -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+
+    <!-- Pin the dependency closure so it is reviewable in a diff and reproducible on restore.
+         CI restores in locked mode, which fails if a lock file is stale. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <!-- Normalises source paths embedded in the PDBs. SourceLink is configured on both
+         packages, but without this the symbols carry the runner's absolute paths and the
+         build is not path-reproducible. -->
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+</Project>

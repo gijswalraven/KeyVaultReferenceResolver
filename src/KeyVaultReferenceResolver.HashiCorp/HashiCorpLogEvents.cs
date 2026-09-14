@@ -13,28 +13,56 @@ namespace KeyVaultReferenceResolver.HashiCorp
     /// </remarks>
     public static class HashiCorpLogEvents
     {
+        // The const int values are what the source-generated log methods bind to; the EventId
+        // fields below are the consumer-facing form. They are declared together so the two can
+        // never drift apart.
+
+        /// <summary>Numeric ID of <see cref="SecretResolved"/>.</summary>
+        public const int SecretResolvedId = 2001;
+
+        /// <summary>Numeric ID of <see cref="SecretRead"/>.</summary>
+        public const int SecretReadId = 2002;
+
+        /// <summary>Numeric ID of <see cref="ResolutionFailed"/>.</summary>
+        public const int ResolutionFailedId = 2003;
+
+        /// <summary>Numeric ID of <see cref="ResolutionSummary"/>.</summary>
+        public const int ResolutionSummaryId = 2004;
+
+        /// <summary>Numeric ID of <see cref="KvVersionProbe"/>.</summary>
+        public const int KvVersionProbeId = 2005;
+
+        /// <summary>Numeric ID of <see cref="AuthMethodSelected"/>.</summary>
+        public const int AuthMethodSelectedId = 2101;
+
+        /// <summary>Numeric ID of <see cref="Reauthenticated"/>.</summary>
+        public const int ReauthenticatedId = 2102;
+
+        /// <summary>Numeric ID of <see cref="CacheHit"/>.</summary>
+        public const int CacheHitId = 2201;
+
         /// <summary>A single secret was read from Vault. Debug.</summary>
-        public static readonly EventId SecretResolved = new EventId(2001, nameof(SecretResolved));
+        public static readonly EventId SecretResolved = new EventId(SecretResolvedId, nameof(SecretResolved));
 
         /// <summary>A secret was read successfully, without naming the key. Information.</summary>
-        public static readonly EventId SecretRead = new EventId(2002, nameof(SecretRead));
+        public static readonly EventId SecretRead = new EventId(SecretReadId, nameof(SecretRead));
 
         /// <summary>A reference could not be resolved and its value was set to null. Error.</summary>
-        public static readonly EventId ResolutionFailed = new EventId(2003, nameof(ResolutionFailed));
+        public static readonly EventId ResolutionFailed = new EventId(ResolutionFailedId, nameof(ResolutionFailed));
 
         /// <summary>Summary of how many references were resolved. Information.</summary>
-        public static readonly EventId ResolutionSummary = new EventId(2004, nameof(ResolutionSummary));
+        public static readonly EventId ResolutionSummary = new EventId(ResolutionSummaryId, nameof(ResolutionSummary));
 
         /// <summary>The mount answered as KV v1 after a v2 attempt. Debug.</summary>
-        public static readonly EventId KvVersionProbe = new EventId(2005, nameof(KvVersionProbe));
+        public static readonly EventId KvVersionProbe = new EventId(KvVersionProbeId, nameof(KvVersionProbe));
 
         /// <summary>Which authentication method was selected for a vault. Information.</summary>
-        public static readonly EventId AuthMethodSelected = new EventId(2101, nameof(AuthMethodSelected));
+        public static readonly EventId AuthMethodSelected = new EventId(AuthMethodSelectedId, nameof(AuthMethodSelected));
 
         /// <summary>Vault rejected the login token, so the client re-authenticated. Information.</summary>
-        public static readonly EventId Reauthenticated = new EventId(2102, nameof(Reauthenticated));
+        public static readonly EventId Reauthenticated = new EventId(ReauthenticatedId, nameof(Reauthenticated));
 
         /// <summary>A secret was served from the in-memory cache. Debug.</summary>
-        public static readonly EventId CacheHit = new EventId(2201, nameof(CacheHit));
+        public static readonly EventId CacheHit = new EventId(CacheHitId, nameof(CacheHit));
     }
 }

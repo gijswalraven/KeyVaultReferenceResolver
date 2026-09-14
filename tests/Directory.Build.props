@@ -1,0 +1,22 @@
+<Project>
+
+  <!-- Inherit the repository-wide settings; MSBuild only auto-imports the nearest
+       Directory.Build.props, so the parent has to be imported explicitly. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!--
+      Analyzer rules relaxed for test projects only. Production code keeps the full set.
+
+      CA1707: identifiers should not contain underscores. The
+              Method_Scenario_ExpectedResult naming convention is deliberate here and is what
+              makes a failing test name readable in CI output.
+      CA1806: do not ignore method results. Tests legitimately call a constructor or method
+              purely to assert that it does not throw.
+      CA1711: type names should not end in 'Collection'. xUnit collection-definition classes
+              are conventionally named that way, and the attribute reference is by string.
+    -->
+    <NoWarn>$(NoWarn);CA1707;CA1806;CA1711</NoWarn>
+  </PropertyGroup>
+
+</Project>
