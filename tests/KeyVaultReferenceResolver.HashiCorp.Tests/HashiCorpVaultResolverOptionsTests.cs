@@ -236,5 +236,81 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
 
             Assert.Equal("my-namespace", options.Namespace);
         }
+
+        [Fact]
+        public void CacheTtl_DefaultsToInfinite()
+        {
+            var options = new HashiCorpVaultResolverOptions();
+
+            // Secrets are cached until explicitly refreshed rather than re-fetched on a timer.
+            Assert.Equal(System.Threading.Timeout.InfiniteTimeSpan, options.CacheTtl);
+        }
+
+        [Fact]
+        public void EnsureTransportAllowed_HttpAddress_Throws()
+        {
+            var options = new HashiCorpVaultResolverOptions();
+
+            // Plaintext HTTP would send the Vault token and the secret in the clear.
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => options.EnsureTransportAllowed("http://vault.vault.svc:8200"));
+
+            Assert.Contains("https", ex.Message);
+        }
+
+        [Fact]
+        public void EnsureTransportAllowed_HttpAddressWithOptIn_Returns()
+        {
+            var options = new HashiCorpVaultResolverOptions { AllowInsecureTransport = true };
+
+            var result = options.EnsureTransportAllowed("http://127.0.0.1:8200");
+
+            Assert.Equal("http://127.0.0.1:8200", result);
+        }
+
+        [Fact]
+        public void EnsureTransportAllowed_HttpsAddress_Returns()
+        {
+            var options = new HashiCorpVaultResolverOptions();
+
+            var result = options.EnsureTransportAllowed("https://vault.example.com");
+
+            Assert.Equal("https://vault.example.com", result);
+        }
+
+        [Fact]
+        public void EnsureTransportAllowed_MalformedAddress_Throws()
+        {
+            var options = new HashiCorpVaultResolverOptions();
+
+            Assert.Throws<InvalidOperationException>(
+                () => options.EnsureTransportAllowed("not-a-uri"));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        public void Validate_NonPositiveMaxConcurrency_Throws(int maxConcurrency)
+        {
+            var options = new HashiCorpVaultResolverOptions { MaxConcurrency = maxConcurrency };
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => options.Validate());
+        }
+
+        [Fact]
+        public void Validate_ZeroTimeout_Throws()
+        {
+            var options = new HashiCorpVaultResolverOptions { Timeout = TimeSpan.Zero };
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => options.Validate());
+        }
+
+        [Fact]
+        public void Validate_Defaults_DoesNotThrow()
+        {
+            var options = new HashiCorpVaultResolverOptions();
+
+            options.Validate();
+        }
     }
 }
