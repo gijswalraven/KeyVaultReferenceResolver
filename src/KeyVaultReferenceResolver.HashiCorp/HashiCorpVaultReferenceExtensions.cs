@@ -84,7 +84,10 @@ namespace KeyVaultReferenceResolver.HashiCorp
             options.Validate();
             logger = logger ?? NullLogger.Instance;
 
-            var references = new List<KeyValuePair<string, string>>();
+            // Key -> its original value. A value may embed a reference alongside literal text, and
+            // may embed more than one.
+            var referencingKeys = new Dictionary<string, string>();
+            var distinctReferences = new HashSet<string>(StringComparer.Ordinal);
 
             // builder.Build() instantiates a fresh set of providers, separate from the ones the
             // caller's own Build() will create. Each AddJsonFile(reloadOnChange: true) among them
@@ -98,10 +101,15 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     if (string.IsNullOrEmpty(kvp.Value))
                         continue;
 
-                    if (!HashiCorpVaultSecretResolver.IsHashiCorpVaultReference(kvp.Value))
-                        continue;
+                    var found = false;
+                    foreach (var reference in EnumerateReferences(kvp.Value!))
+                    {
+                        distinctReferences.Add(reference);
+                        found = true;
+                    }
 
-                    references.Add(new KeyValuePair<string, string>(kvp.Key, kvp.Value!));
+                    if (found)
+                        referencingKeys[kvp.Key] = kvp.Value!;
                 }
             }
             finally
@@ -109,10 +117,14 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 (tempConfig as IDisposable)?.Dispose();
             }
 
-            if (references.Count == 0)
+            if (distinctReferences.Count == 0)
                 return builder;
 
-            var resolvedValues = ResolveReferences(references, secretResolver, options, logger);
+            var secrets = ResolveReferences(distinctReferences, secretResolver, options, logger, referencingKeys);
+
+            var resolvedValues = new Dictionary<string, string?>(referencingKeys.Count);
+            foreach (var entry in referencingKeys)
+                resolvedValues[entry.Key] = SubstituteReferences(entry.Value, secrets);
 
             if (resolvedValues.Count > 0)
             {
@@ -130,11 +142,54 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// <summary>
         /// Resolves every reference with bounded concurrency under one overall time budget.
         /// </summary>
+        /// <summary>
+        /// Enumerates the Vault references embedded in a configuration value.
+        /// </summary>
+        /// <remarks>
+        /// The attribute form can appear anywhere in a value, so a connection string may carry one
+        /// alongside literal text. The <c>hashicorp://</c> form is anchored and can only be a whole
+        /// value, so it is matched as such.
+        /// </remarks>
+        private static IEnumerable<string> EnumerateReferences(string value)
+        {
+            foreach (var reference in HashiCorpVaultSecretResolver.EnumerateAttributeReferences(value))
+                yield return reference;
+
+            if (HashiCorpVaultSecretResolver.IsWholeValueUriReference(value))
+                yield return value;
+        }
+
+        /// <summary>
+        /// Replaces every reference in a value with its resolved secret, leaving surrounding
+        /// literal text intact. Returns null if any reference in the value could not be resolved,
+        /// so a partially substituted credential is never handed to the caller.
+        /// </summary>
+        private static string? SubstituteReferences(string originalValue, Dictionary<string, string?> secrets)
+        {
+            // A whole-value hashicorp:// reference has nothing around it to preserve.
+            if (HashiCorpVaultSecretResolver.IsWholeValueUriReference(originalValue))
+                return secrets.TryGetValue(originalValue, out var whole) ? whole : null;
+
+            var failed = false;
+
+            var result = HashiCorpVaultSecretResolver.ReplaceAttributeReferences(originalValue, reference =>
+            {
+                if (secrets.TryGetValue(reference, out var secret) && secret != null)
+                    return secret;
+
+                failed = true;
+                return string.Empty;
+            });
+
+            return failed ? null : result;
+        }
+
         private static Dictionary<string, string?> ResolveReferences(
-            List<KeyValuePair<string, string>> references,
+            HashSet<string> references,
             ISecretResolver secretResolver,
             HashiCorpVaultResolverOptions options,
-            ILogger logger)
+            ILogger logger,
+            Dictionary<string, string> referencingKeys)
         {
             var resolved = new ConcurrentDictionary<string, string?>();
             var failures = new ConcurrentQueue<HashiCorpVaultReferenceResolutionException>();
@@ -147,7 +202,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
                 var tasks = references
                     .Select(reference => ResolveOneAsync(
-                        reference, secretResolver, logger, resolved, failures, gate, overallCts.Token))
+                        reference, secretResolver, logger, resolved, failures, gate,
+                        referencingKeys, overallCts.Token))
                     .ToArray();
 
                 Task.WhenAll(tasks).GetAwaiter().GetResult();
@@ -160,43 +216,61 @@ namespace KeyVaultReferenceResolver.HashiCorp
         }
 
         private static async Task ResolveOneAsync(
-            KeyValuePair<string, string> reference,
+            string reference,
             ISecretResolver secretResolver,
             ILogger logger,
             ConcurrentDictionary<string, string?> resolved,
             ConcurrentQueue<HashiCorpVaultReferenceResolutionException> failures,
             SemaphoreSlim gate,
+            Dictionary<string, string> referencingKeys,
             CancellationToken cancellationToken)
         {
             await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             try
             {
                 var secretValue = await secretResolver
-                    .ResolveSecretAsync(reference.Value, cancellationToken)
+                    .ResolveSecretAsync(reference, cancellationToken)
                     .ConfigureAwait(false);
 
-                resolved[reference.Key] = secretValue;
-                // Debug rather than Information - see the Azure-side extension for rationale.
-                HashiCorpLog.ReferenceResolved(logger, reference.Key);
+                resolved[reference] = secretValue;
             }
             catch (Exception ex)
             {
                 // Fail closed. Leaving the key unset would let the application read the literal
                 // "@HashiCorp.Vault(...)" string and use it as a credential.
-                resolved[reference.Key] = null;
+                resolved[reference] = null;
+
+                var configKey = FirstKeyReferencing(reference, referencingKeys);
 
                 failures.Enqueue(new HashiCorpVaultReferenceResolutionException(
-                    $"Failed to resolve HashiCorp Vault reference for configuration key '{reference.Key}'",
-                    reference.Key,
-                    reference.Value,
+                    $"Failed to resolve HashiCorp Vault reference for configuration key '{configKey}'",
+                    configKey,
+                    reference,
                     ex));
 
-                HashiCorpLog.ResolutionFailed(logger, ex, reference.Key);
+                HashiCorpLog.ResolutionFailed(logger, ex, configKey);
             }
             finally
             {
                 gate.Release();
             }
+        }
+
+        /// <summary>
+        /// Finds a configuration key whose value carries the given reference, for error reporting.
+        /// </summary>
+        private static string FirstKeyReferencing(string reference, Dictionary<string, string> referencingKeys)
+        {
+            foreach (var entry in referencingKeys)
+            {
+                foreach (var candidate in EnumerateReferences(entry.Value))
+                {
+                    if (string.Equals(candidate, reference, StringComparison.Ordinal))
+                        return entry.Key;
+                }
+            }
+
+            return string.Empty;
         }
 
         /// <summary>

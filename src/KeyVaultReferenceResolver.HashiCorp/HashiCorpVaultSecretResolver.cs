@@ -272,6 +272,31 @@ namespace KeyVaultReferenceResolver.HashiCorp
         }
 
         /// <summary>
+        /// Enumerates the <c>@HashiCorp.Vault(...)</c> references embedded in a value.
+        /// </summary>
+        internal static IEnumerable<string> EnumerateAttributeReferences(string value)
+        {
+            foreach (Match match in AttributePattern.Matches(value))
+                yield return match.Value;
+        }
+
+        /// <summary>
+        /// Reports whether the whole value is a <c>hashicorp://host/path#key</c> reference.
+        /// </summary>
+        internal static bool IsWholeValueUriReference(string value)
+        {
+            return UriPattern.IsMatch(value);
+        }
+
+        /// <summary>
+        /// Replaces each embedded <c>@HashiCorp.Vault(...)</c> reference using the given selector.
+        /// </summary>
+        internal static string ReplaceAttributeReferences(string value, Func<string, string> resolve)
+        {
+            return AttributePattern.Replace(value, match => resolve(match.Value));
+        }
+
+        /// <summary>
         /// Tries to extract secret information from a HashiCorp Vault reference.
         /// </summary>
         /// <param name="value">The value to parse.</param>
