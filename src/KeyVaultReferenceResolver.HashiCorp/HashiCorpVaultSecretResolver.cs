@@ -226,8 +226,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
             {
                 return (
                     attrMatch.Groups["addr"].Value,
-                    attrMatch.Groups["path"].Value,
-                    attrMatch.Groups["key"].Value
+                    ValidateSecretPath(attrMatch.Groups["path"].Value),
+                    ValidateSecretKey(attrMatch.Groups["key"].Value)
                 );
             }
 
@@ -236,8 +236,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
             if (uriMatch.Success)
             {
                 var host = uriMatch.Groups["host"].Value;
-                var path = uriMatch.Groups["path"].Value;
-                var key = uriMatch.Groups["key"].Value;
+                var path = ValidateSecretPath(uriMatch.Groups["path"].Value);
+                var key = ValidateSecretKey(uriMatch.Groups["key"].Value);
 
                 // Reconstruct vault address with https
                 var vaultAddress = $"https://{host}";
@@ -250,6 +250,76 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 "Expected format: @HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath=secret/data/myapp;SecretKey=password) " +
                 "or hashicorp://vault.example.com/secret/data/myapp#password",
                 nameof(secretUri));
+        }
+
+        /// <summary>
+        /// Rejects a secret path that could address a different Vault API endpoint.
+        /// </summary>
+        /// <remarks>
+        /// The path comes from a configuration value and is passed to VaultSharp, which puts it
+        /// into the request URL. A dot segment is normalised away by <see cref="Uri"/>, so
+        /// <c>secret/data/../../sys/mounts</c> would reach a different endpoint entirely, and a
+        /// <c>?</c> or <c>#</c> would splice a query string or fragment onto the request.
+        /// </remarks>
+        /// <param name="path">The secret path from the reference.</param>
+        /// <returns>The validated path.</returns>
+        /// <exception cref="ArgumentException">Thrown when the path is not a plain relative path.</exception>
+        private static string ValidateSecretPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                throw new ArgumentException("Vault secret path cannot be empty.", nameof(path));
+
+            foreach (var c in path)
+            {
+                if (c == '?' || c == '#' || c == '\\' || char.IsControl(c))
+                {
+                    throw new ArgumentException(
+                        $"Vault secret path contains an illegal character '{Describe(c)}'.",
+                        nameof(path));
+                }
+            }
+
+            var segments = path.Split('/');
+            foreach (var segment in segments)
+            {
+                if (segment == "." || segment == "..")
+                {
+                    throw new ArgumentException(
+                        "Vault secret path must not contain '.' or '..' segments.",
+                        nameof(path));
+                }
+            }
+
+            return path;
+        }
+
+        /// <summary>
+        /// Rejects a secret key containing characters that do not belong in a KV field name.
+        /// </summary>
+        /// <param name="key">The secret key from the reference.</param>
+        /// <returns>The validated key.</returns>
+        /// <exception cref="ArgumentException">Thrown when the key contains a control character.</exception>
+        private static string ValidateSecretKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                throw new ArgumentException("Vault secret key cannot be empty.", nameof(key));
+
+            foreach (var c in key)
+            {
+                if (char.IsControl(c))
+                {
+                    throw new ArgumentException(
+                        "Vault secret key contains a control character.",
+                        nameof(key));
+                }
+            }
+
+            return key;
+        }
+
+        private static string Describe(char c)
+        {
+            return char.IsControl(c) ? $"\\u{(int)c:x4}" : c.ToString();
         }
 
         // Note: VaultSharp does not currently support CancellationToken (see https://github.com/rajanadar/VaultSharp/issues/368)
