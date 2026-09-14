@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using VaultSharp;
+using VaultSharp.Core;
 using VaultSharp.V1.Commons;
 
 namespace KeyVaultReferenceResolver.HashiCorp
@@ -96,7 +98,25 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     _logger.LogDebug("Resolving secret {SecretKey} from path {SecretPath} at {VaultAddress}",
                         secretKey, MaskPath(secretPath), vaultAddress);
 
-                    var secretValue = await ReadSecretAsync(client, secretPath, secretKey, cts.Token).ConfigureAwait(false);
+                    string secretValue;
+                    try
+                    {
+                        secretValue = await ReadSecretAsync(client, secretPath, secretKey, cts.Token).ConfigureAwait(false);
+                    }
+                    catch (VaultApiException ex) when (IsAuthFailure(ex))
+                    {
+                        // VaultSharp logs in once and caches the result on the auth method info,
+                        // so once the login token's TTL elapses every subsequent read fails with
+                        // 403 for the life of the process. Evict the client and log in again.
+                        _logger.LogInformation(
+                            "Vault returned {Status} for {SecretPath}; re-authenticating and retrying once.",
+                            ex.HttpStatusCode,
+                            MaskPath(secretPath));
+
+                        var freshClient = ReauthenticateClient(vaultAddress);
+                        secretValue = await ReadSecretAsync(freshClient, secretPath, secretKey, cts.Token)
+                            .ConfigureAwait(false);
+                    }
 
                     // Cache the resolved secret
                     if (_options.EnableCaching)
@@ -336,31 +356,39 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 mountPath = _options.MountPath;
             }
 
-            var kvVersion = _options.KvVersion ?? 2; // Default to KV v2
+            // KvVersion unset means "try v2, fall back to v1". Detecting the engine version
+            // properly would mean reading sys/mounts, which a least-privileged application token
+            // has no access to - so probing with the permissions we already hold is the only
+            // detection that works in practice.
+            if (_options.KvVersion == 1)
+                return await ReadKvV1Async(client, mountPath, actualPath, secretPath, secretKey).ConfigureAwait(false);
 
-            Secret<SecretData> secret;
-            if (kvVersion == 2)
+            if (_options.KvVersion == 2)
+                return await ReadKvV2Async(client, mountPath, actualPath, secretPath, secretKey).ConfigureAwait(false);
+
+            try
             {
-                secret = await client.V1.Secrets.KeyValue.V2.ReadSecretAsync(
-                    path: actualPath,
-                    mountPoint: mountPath
-                ).ConfigureAwait(false);
+                return await ReadKvV2Async(client, mountPath, actualPath, secretPath, secretKey).ConfigureAwait(false);
             }
-            else
+            catch (VaultApiException ex) when (IsMountVersionMismatch(ex))
             {
-                var kvV1Secret = await client.V1.Secrets.KeyValue.V1.ReadSecretAsync(
-                    path: actualPath,
-                    mountPoint: mountPath
-                ).ConfigureAwait(false);
+                _logger.LogDebug(
+                    "Mount {MountPath} did not answer as KV v2 (HTTP {Status}); retrying as KV v1. " +
+                    "Set KvVersion to skip this probe.",
+                    mountPath,
+                    ex.HttpStatusCode);
 
-                // Convert to same format for unified handling
-                if (kvV1Secret?.Data == null || !kvV1Secret.Data.TryGetValue(secretKey, out var v1Value))
-                {
-                    throw new KeyNotFoundException($"Secret key not found at path '{MaskPath(secretPath)}'");
-                }
-
-                return v1Value?.ToString() ?? string.Empty;
+                return await ReadKvV1Async(client, mountPath, actualPath, secretPath, secretKey).ConfigureAwait(false);
             }
+        }
+
+        private async Task<string> ReadKvV2Async(
+            IVaultClient client, string mountPath, string actualPath, string secretPath, string secretKey)
+        {
+            Secret<SecretData> secret = await client.V1.Secrets.KeyValue.V2.ReadSecretAsync(
+                path: actualPath,
+                mountPoint: mountPath
+            ).ConfigureAwait(false);
 
             if (secret?.Data?.Data == null || !secret.Data.Data.TryGetValue(secretKey, out var value))
             {
@@ -368,6 +396,52 @@ namespace KeyVaultReferenceResolver.HashiCorp
             }
 
             return value?.ToString() ?? string.Empty;
+        }
+
+        private async Task<string> ReadKvV1Async(
+            IVaultClient client, string mountPath, string actualPath, string secretPath, string secretKey)
+        {
+            var kvV1Secret = await client.V1.Secrets.KeyValue.V1.ReadSecretAsync(
+                path: actualPath,
+                mountPoint: mountPath
+            ).ConfigureAwait(false);
+
+            if (kvV1Secret?.Data == null || !kvV1Secret.Data.TryGetValue(secretKey, out var v1Value))
+            {
+                throw new KeyNotFoundException($"Secret key not found at path '{MaskPath(secretPath)}'");
+            }
+
+            return v1Value?.ToString() ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Recognises a Vault response that means the login token is no longer accepted.
+        /// </summary>
+        private static bool IsAuthFailure(VaultApiException ex)
+        {
+            return ex.HttpStatusCode == HttpStatusCode.Forbidden
+                || ex.HttpStatusCode == HttpStatusCode.Unauthorized;
+        }
+
+        /// <summary>
+        /// Drops the cached client for an address so the next call performs a fresh login.
+        /// </summary>
+        private IVaultClient ReauthenticateClient(string vaultAddress)
+        {
+            var effectiveAddress = NormalizeVaultAddress(ResolveTrustedAddress(vaultAddress));
+            _vaultClients.TryRemove(effectiveAddress, out _);
+            return GetOrCreateClient(vaultAddress);
+        }
+
+        /// <summary>
+        /// Recognises the response a KV v1 mount gives to a v2-shaped request.
+        /// </summary>
+        private static bool IsMountVersionMismatch(VaultApiException ex)
+        {
+            // A v1 mount has no /data/ sub-path, so the v2 request shape 404s. 400 covers
+            // "Invalid path for a versioned K/V secrets engine", which some versions return.
+            return ex.HttpStatusCode == HttpStatusCode.NotFound
+                || ex.HttpStatusCode == HttpStatusCode.BadRequest;
         }
 
         private static (string mountPath, string actualPath) SplitPath(string fullPath)
@@ -403,6 +477,16 @@ namespace KeyVaultReferenceResolver.HashiCorp
             return _vaultClients.GetOrAdd(effectiveAddress, address =>
             {
                 var authMethod = _options.GetEffectiveAuthMethod();
+
+                // Record which method won the auto-detection race. Without this, a leftover
+                // VAULT_TOKEN in a production container silently overrides the intended
+                // workload identity - VAULT_TOKEN is tried before AppRole, which is tried
+                // before the Kubernetes service account - and nothing says so.
+                _logger.LogInformation(
+                    "Authenticating to Vault at {VaultAddress} using {AuthMethod}",
+                    address,
+                    authMethod.GetType().Name);
+
                 var settings = new VaultClientSettings(address, authMethod.GetAuthMethodInfo());
 
                 // VaultSharp does not observe a CancellationToken, so this is the only timeout
