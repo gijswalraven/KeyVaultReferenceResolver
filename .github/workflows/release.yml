@@ -14,6 +14,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The release tag and the csproj <Version> are maintained by hand, so a
+      # mismatch would publish a package version that does not match the tag.
+      # NuGet does not allow true deletion, so fail before anything is pushed.
+      - name: Verify tag matches package version
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          csproj="src/KeyVaultReferenceResolver/KeyVaultReferenceResolver.csproj"
+          version="$(grep -oPm1 '(?<=<Version>)[^<]+' "$csproj")"
+          if [ -z "$version" ]; then
+            echo "::error::Could not read <Version> from $csproj"
+            exit 1
+          fi
+          if [ "$tag" != "v$version" ]; then
+            echo "::error::Release tag '$tag' does not match <Version> '$version' in $csproj (expected tag 'v$version')"
+            exit 1
+          fi
+          echo "Tag '$tag' matches package version '$version'."
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
