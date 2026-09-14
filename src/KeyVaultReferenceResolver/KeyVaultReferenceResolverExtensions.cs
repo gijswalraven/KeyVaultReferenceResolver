@@ -183,7 +183,8 @@ namespace KeyVaultReferenceResolver
             if (distinctUris.Count == 0)
                 return builder;
 
-            var secrets = ResolveSecrets(distinctUris, secretResolver, options, logger, referencingKeys);
+            var secrets = RunWithoutSynchronizationContext(
+                () => ResolveSecrets(distinctUris, secretResolver, options, logger, referencingKeys));
             var resolvedValues = new Dictionary<string, string?>(referencingKeys.Count);
 
             foreach (var entry in referencingKeys)
@@ -261,6 +262,28 @@ namespace KeyVaultReferenceResolver
                 throw firstFailure;
 
             return new Dictionary<string, string?>(resolved, StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// Runs the resolution on a thread with no <see cref="SynchronizationContext"/>.
+        /// </summary>
+        /// <remarks>
+        /// Configuration is built synchronously, so the asynchronous resolution has to be waited
+        /// on. The library's own awaits all use ConfigureAwait(false), but the ISecretResolver it
+        /// awaits belongs to the caller: a resolver that yields without ConfigureAwait(false)
+        /// posts its continuation to whatever context was current when it was invoked, and that
+        /// thread is the one blocked waiting for it. Startup then hangs with no error.
+        ///
+        /// Moving only the wait is not enough - the tasks are started here too, so the
+        /// continuation would already have been posted to the captured context. The whole
+        /// resolution runs on the thread pool, where there is no context to post back to.
+        /// </remarks>
+        private static T RunWithoutSynchronizationContext<T>(Func<T> resolve)
+        {
+            if (SynchronizationContext.Current == null)
+                return resolve();
+
+            return Task.Run(resolve).GetAwaiter().GetResult();
         }
 
         private static async Task ResolveOneAsync(
