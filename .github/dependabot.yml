@@ -1,0 +1,36 @@
+version: 2
+
+updates:
+  # NuGet dependencies. Azure.Identity, Azure.Security.KeyVault.Secrets and
+  # VaultSharp all sit directly in the credential path, so advisories against
+  # them matter more here than in an average library.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Keep the Azure SDK moving as a set; these packages are versioned and
+      # tested together upstream.
+      azure-sdk:
+        patterns:
+          - "Azure.*"
+      microsoft-extensions:
+        patterns:
+          - "Microsoft.Extensions.*"
+      test-dependencies:
+        patterns:
+          - "xunit*"
+          - "Moq"
+          - "coverlet.*"
+          - "Microsoft.NET.Test.Sdk"
+
+  # Action versions. These are pinned to commit SHAs, which Dependabot
+  # understands and will bump along with the trailing version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
