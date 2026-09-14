@@ -38,6 +38,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Internal members are exposed to the test project so that the credential and
+         client-options builders can be asserted on directly. Without this the only way
+         to test them is through a live vault call. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>KeyVaultReferenceResolver.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>KeyVaultReferenceResolver.TestSupport</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
