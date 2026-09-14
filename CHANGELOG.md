@@ -10,6 +10,108 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+## [1.4.0]
+
+Security release. Follow-up to 1.3.0, from a second review of the same paths.
+Nothing here changes behaviour on upgrade: every tightening that would have is
+behind a new opt-in, and becomes the default in 2.0.
+
+### Security
+
+- **Pin a HashiCorp vault address supplied by a reference against `VAULT_ADDR`.**
+  `ResolveTrustedAddress` only pinned when the `VaultAddress` option was set in
+  process. The documented and most common deployment — address from
+  `VAULT_ADDR`, `AllowedVaultAddresses` left empty — matched neither gate and
+  accepted any HTTPS host a reference named, sending it `VAULT_TOKEN`, an
+  AppRole secret ID or a Kubernetes service account token. `VAULT_ADDR` now
+  counts as a pin. A mismatch is rejected when the new
+  `StrictVaultAddressValidation` is set, and otherwise logged as
+  `VaultAddressUnverified` (2103) at `Warning`.
+- **Allow-list Key Vault hosts exactly.** `AllowedVaultHostSuffixes` establishes
+  that a host is a Key Vault, not whose: `https://attacker.vault.azure.net`
+  satisfies the default list, and resolving against it presents a token for the
+  application's identity to a vault its owner controls, who can replay it. The
+  new `AllowedVaultHosts` matches whole hosts and, when populated, is
+  authoritative.
+- **Match host suffixes at a label boundary.** `EndsWith` matched inside a
+  label, so narrowing the list to `contoso.vault.azure.net` also admitted
+  `evilcontoso.vault.azure.net` — the configuration that looked safest was the
+  one that silently failed.
+- **Force challenge resource verification on.** A caller-supplied
+  `SecretClientOptions` could set `DisableChallengeResourceVerification`, letting
+  a vault name a different resource in its authentication challenge and have the
+  SDK fetch a token for it. It is now overridden, as `IsLoggingContentEnabled`
+  already was. `AdditionallyAllowedTenants` is exposed so the credential can be
+  pinned to one tenant.
+- **Detect references the resolver never saw.** Resolution is a single sweep at
+  registration, so a source registered afterwards — or a reloading source that
+  gains a reference later — overrode the resolved values and was never resolved,
+  handing the application the literal reference string to use as a credential.
+  A later source is now reported as `ResolverNotLastSource` (1005 / 2006) at
+  `Error`, and `AssertNoUnresolvedReferences` / `FindUnresolvedReferences` (plus
+  the `...VaultReferences` pair) let a caller fail startup instead.
+- **Stop double-decoding the secret name.** Parsing called
+  `Uri.UnescapeDataString` on an already partially decoded path, so
+  `%252e%252e%252f` reached the SDK as `../`. Azure.Core re-escapes the segment,
+  so nothing was exploitable, but the decode is gone and names are now validated
+  against Key Vault's own rules.
+
+### Added
+
+- `KeyVaultReferenceResolverOptions.AllowedVaultHosts`,
+  `AdditionallyAllowedTenants` and `MaxCacheEntries`.
+- `HashiCorpVaultResolverOptions.StrictVaultAddressValidation` and
+  `MaxCacheEntries`.
+- `IConfiguration.FindUnresolvedReferences()` /
+  `AssertNoUnresolvedReferences()`, and the HashiCorp equivalents.
+- Log events `ResolverNotLastSource`, `UnresolvedReference`, `CacheFull` and
+  `VaultAddressUnverified`.
+
+### Fixed
+
+- **HashiCorp references embedded in a larger value.** The whole configuration
+  value was replaced by the secret, so
+  `Server=db;Password=@HashiCorp.Vault(...);Encrypt=true` resolved to the bare
+  password. References are now substituted in place, matching the Azure package.
+  If any reference in a value fails, the whole value becomes `null`.
+- **Deadlock when registering under a `SynchronizationContext`.** The resolution
+  is awaited synchronously while the `ISecretResolver` belongs to the caller, so
+  a resolver that yields without `ConfigureAwait(false)` posted its continuation
+  to the very thread blocked waiting for it — under classic ASP.NET, WPF or
+  WinForms, startup hung with no error. Resolution now runs on the thread pool
+  when a context is present.
+- **Cache entries keyed on the raw reference.** The same secret spelled two ways
+  occupied two entries, so `InvalidateCache` could evict one while the other kept
+  serving the pre-rotation value. Both resolvers now key on the parsed,
+  canonical form.
+- **Unbounded secret cache.** Nothing removed an entry, so a caller resolving
+  references chosen at runtime held every secret it had ever seen for the life of
+  the process. Capped by `MaxCacheEntries` (default 1024).
+
+### Deprecated
+
+- `MockSecretResolver`. A test double that can hand an application empty
+  passwords should not ship inside the library; `EditorBrowsable(Never)` never
+  stopped a dependency-injection registration. Use
+  `KeyVaultReferenceResolver.Testing.FakeSecretResolver` from the test-support
+  project. Removed in 2.0.
+
+### Changed
+
+- The release workflow is split into an unprivileged `build` job and a `publish`
+  job that runs no project code, so the OIDC and write permissions are never in
+  scope while compiling or testing. Its checkout now sets
+  `persist-credentials: false`, as every other workflow already did.
+
+### Planned for 2.0
+
+These become the default, and are opt-in until then:
+
+- `StrictVaultAddressValidation` on.
+- A later configuration source, and any unresolved reference, fail startup
+  rather than logging at `Error`.
+- `MockSecretResolver` removed.
+
 ## [1.3.0]
 
 Security release. Every item under `Security` was found by a review of the
@@ -237,7 +339,8 @@ resolution path in both packages.
 - Initial release: resolve `@Microsoft.KeyVault(SecretUri=...)` references in
   `Microsoft.Extensions.Configuration` anywhere, not just Azure App Service.
 
-[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.0.0...v1.1.0
