@@ -56,6 +56,19 @@ namespace KeyVaultReferenceResolver
         public Uri? AuthorityHost { get; set; }
 
         /// <summary>
+        /// Gets or sets the tenants, besides <see cref="TenantId"/>, that the credential may
+        /// acquire a token from. <c>null</c> (the default) leaves the Azure Identity default in
+        /// place, which honours the <c>AZURE_ADDITIONALLY_ALLOWED_TENANTS</c> environment variable.
+        /// </summary>
+        /// <remarks>
+        /// Set this to an empty list to pin the credential to a single tenant, so that neither an
+        /// environment variable nor an authentication challenge from a vault outside the home
+        /// tenant can widen where a token is issued from. Ignored when <see cref="Credential"/>
+        /// is set.
+        /// </remarks>
+        public IList<string>? AdditionallyAllowedTenants { get; set; }
+
+        /// <summary>
         /// Gets or sets whether locally cached developer credentials (Azure CLI, Azure Developer CLI,
         /// Visual Studio, Azure PowerShell) may be used. Default is <c>false</c>, so a process running
         /// in Azure cannot silently fall back to a developer's personal identity.
@@ -81,9 +94,12 @@ namespace KeyVaultReferenceResolver
         /// tuning, proxy/transport configuration, diagnostics and service version pinning.
         /// </summary>
         /// <remarks>
-        /// <see cref="Azure.Core.DiagnosticsOptions.IsLoggingContentEnabled"/> is always forced to
-        /// <c>false</c> on the instance supplied here, so that enabling Azure SDK logging can never
-        /// write secret payloads to the log.
+        /// Two settings on the instance supplied here are always overridden.
+        /// <see cref="Azure.Core.DiagnosticsOptions.IsLoggingContentEnabled"/> is forced to
+        /// <c>false</c>, so that enabling Azure SDK logging can never write secret payloads to the
+        /// log. <see cref="SecretClientOptions.DisableChallengeResourceVerification"/> is forced to
+        /// <c>false</c>, so that a vault cannot use its authentication challenge to redirect token
+        /// acquisition at a resource of its choosing.
         /// </remarks>
         public SecretClientOptions? ClientOptions { get; set; }
 

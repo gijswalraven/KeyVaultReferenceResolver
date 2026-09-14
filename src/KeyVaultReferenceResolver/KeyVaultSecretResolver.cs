@@ -319,6 +319,19 @@ namespace KeyVaultReferenceResolver
 
         private static DefaultAzureCredential CreateDefaultCredential(KeyVaultReferenceResolverOptions options)
         {
+            return new DefaultAzureCredential(BuildCredentialOptions(options));
+        }
+
+        /// <summary>
+        /// Builds the credential options for the default credential chain.
+        /// </summary>
+        /// <remarks>
+        /// Separated from <see cref="CreateDefaultCredential"/>, and internal, because
+        /// <see cref="DefaultAzureCredential"/> exposes none of this once constructed: without a
+        /// seam here, which identities the chain will accept is untestable.
+        /// </remarks>
+        internal static DefaultAzureCredentialOptions BuildCredentialOptions(KeyVaultReferenceResolverOptions options)
+        {
             var credentialOptions = new DefaultAzureCredentialOptions
             {
                 ExcludeAzureCliCredential = !options.AllowDeveloperCredentials,
@@ -338,7 +351,17 @@ namespace KeyVaultReferenceResolver
             if (options.AuthorityHost != null)
                 credentialOptions.AuthorityHost = options.AuthorityHost;
 
-            return new DefaultAzureCredential(credentialOptions);
+            // Left alone when null so the Azure Identity default, including
+            // AZURE_ADDITIONALLY_ALLOWED_TENANTS, still applies. An empty list is meaningful: it
+            // pins the credential to one tenant and overrides that variable.
+            if (options.AdditionallyAllowedTenants != null)
+            {
+                credentialOptions.AdditionallyAllowedTenants.Clear();
+                foreach (var tenant in options.AdditionallyAllowedTenants)
+                    credentialOptions.AdditionallyAllowedTenants.Add(tenant);
+            }
+
+            return credentialOptions;
         }
 
         private (Uri vaultUri, string secretName, string? version) ParseSecretUri(string secretUri)
@@ -451,13 +474,20 @@ namespace KeyVaultReferenceResolver
                 _ => new SecretClient(vaultUri, _credential, BuildClientOptions()));
         }
 
-        private SecretClientOptions BuildClientOptions()
+        internal SecretClientOptions BuildClientOptions()
         {
             var clientOptions = _options.ClientOptions ?? new SecretClientOptions();
 
             // Never let Azure SDK content logging write secret payloads to the log,
             // regardless of AZURE_LOG_LEVEL or any listener the consumer has attached.
             clientOptions.Diagnostics.IsLoggingContentEnabled = false;
+
+            // Challenge resource verification is what stops a vault from naming a different
+            // resource in its authentication challenge and having the SDK fetch a token for it.
+            // The SDK already defaults this off; forcing it means a caller-supplied
+            // SecretClientOptions cannot turn the check off for a library that exists to move
+            // credentials around.
+            clientOptions.DisableChallengeResourceVerification = false;
 
             return clientOptions;
         }
