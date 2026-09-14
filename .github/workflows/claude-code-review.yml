@@ -23,17 +23,20 @@ jobs:
       contents: read
       pull-requests: read
       issues: read
-      id-token: write
+      # id-token: write is deliberately NOT granted. Authentication uses the
+      # claude_code_oauth_token secret, not OIDC, and this workflow processes
+      # pull request content, which is untrusted input.
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@9cdae7f0d995e3ba7c33f226087fdf82a59cd520 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |

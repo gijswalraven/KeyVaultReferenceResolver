@@ -12,27 +12,45 @@ on:
 
 jobs:
   claude:
+    # These triggers all run in the base repository context with access to
+    # repository secrets. Without an author gate, anyone on the internet could
+    # open an issue containing "@claude" and start a job holding
+    # CLAUDE_CODE_OAUTH_TOKEN. Restrict it to people who already have write
+    # access to the repository.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+        github.event.comment.author_association ||
+        github.event.review.author_association ||
+        github.event.issue.author_association) &&
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
       issues: read
-      id-token: write
       actions: read # Required for Claude to read CI results on PRs
+      # id-token: write is deliberately NOT granted. Authentication uses the
+      # claude_code_oauth_token secret, not OIDC, and on a workflow driven by
+      # untrusted input that permission would let injected instructions mint a
+      # signed GitHub OIDC token usable against any cloud trust policy naming
+      # this repository.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
+          # Keep GITHUB_TOKEN out of .git/config, where a prompt-injected run
+          # could read it.
+          persist-credentials: false
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@9cdae7f0d995e3ba7c33f226087fdf82a59cd520 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 

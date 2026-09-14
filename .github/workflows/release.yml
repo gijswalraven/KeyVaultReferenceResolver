@@ -15,7 +15,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # The release tag and the csproj <Version> are maintained by hand, so a
       # mismatch would publish a package version that does not match the tag.
@@ -40,7 +40,7 @@ jobs:
           echo "Tag '$tag' matches package version '$version'."
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: |
             8.0.x
@@ -66,7 +66,7 @@ jobs:
       # for owner gijswalraven, repo KeyVaultReferenceResolver, workflow release.yml.
       - name: NuGet login (OIDC)
         id: nuget-login
-        uses: NuGet/login@v1
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         with:
           # nuget.org profile name, not an email address. Public information --
           # it is the listed owner of the packages -- so it is not a secret.
