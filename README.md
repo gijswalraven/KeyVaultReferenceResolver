@@ -1,7 +1,7 @@
 # 🔐 KeyVaultReferenceResolver
 
-[![NuGet](https://img.shields.io/badge/nuget-v1.2.0-blue.svg)](https://www.nuget.org/packages/KeyVaultReferenceResolver)
-[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
+[![NuGet](https://img.shields.io/badge/nuget-v2.0.0-blue.svg)](https://www.nuget.org/packages/KeyVaultReferenceResolver)
+[![.NET](https://img.shields.io/badge/.NET%20Standard-2.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Seamlessly resolve Azure Key Vault secrets in your .NET configuration — using the same format as Azure App Service.**
@@ -72,12 +72,20 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddKeyVaultReferenceResolver(options =>
 {
-    // Default is fail-fast (true); be lenient in development if needed
-    options.ThrowOnResolveFailure = !builder.Environment.IsDevelopment();
+    // Keep fail-fast on in every environment. For offline development, use
+    // MockSecretResolver or a local-only configuration source rather than
+    // disabling it — see Testing below.
+    options.AllowDeveloperCredentials = builder.Environment.IsDevelopment();
 });
 
 var app = builder.Build();
 ```
+
+> **Note**
+> `AllowDeveloperCredentials` is `false` by default, so locally cached Azure CLI,
+> Azure Developer CLI, Visual Studio and Azure PowerShell credentials are not
+> used unless you opt in. This stops a process running in Azure from silently
+> falling back to a developer's personal identity.
 
 ---
 
@@ -109,14 +117,22 @@ Use the standard Azure App Service Key Vault reference format:
 
 KeyVaultReferenceResolver uses **DefaultAzureCredential** by default, which automatically works with:
 
-| Environment | Authentication Method |
-|-------------|----------------------|
-| **Local Development** | Azure CLI, Visual Studio, VS Code, PowerShell |
-| **Azure App Service** | Managed Identity |
-| **Azure VMs** | Managed Identity |
-| **Azure Kubernetes** | Workload Identity |
-| **CI/CD Pipelines** | Service Principal (env vars) |
-| **Docker/Kubernetes** | Service Principal or Managed Identity |
+| Environment | Recommended | Notes |
+|-------------|-------------|-------|
+| **Azure App Service / Functions** | Managed Identity | Recommended. Set `ManagedIdentityClientId` if more than one identity is assigned, otherwise the credential cannot choose. |
+| **Azure VMs** | Managed Identity | As above. |
+| **Azure Kubernetes** | Workload Identity | Recommended. Prefer this over a service principal in environment variables. |
+| **Local Development** | Azure CLI / Visual Studio / PowerShell | Requires `AllowDeveloperCredentials = true`. Scope the developer identity to a **dev** vault, not production. |
+| **CI/CD Pipelines** | Federated credential (OIDC) | If you must use a client secret, mount it as a file rather than an environment variable and rotate it. |
+| **Docker (outside Azure)** | Service Principal | Least preferred. Consider `ExcludeEnvironmentCredential` elsewhere so this path cannot be used accidentally. |
+
+> **Warning**
+> The environment credential (`AZURE_CLIENT_ID` / `AZURE_TENANT_ID` /
+> `AZURE_CLIENT_SECRET`) sits **ahead of** managed identity in the default
+> chain. Anything able to set those variables in the process environment can
+> redirect vault access to an identity of its choosing. Set
+> `ExcludeEnvironmentCredential = true` when the workload authenticates with a
+> managed or workload identity.
 
 ### Custom Credentials
 
@@ -149,20 +165,80 @@ builder.AddKeyVaultReferenceResolver(
 builder.AddKeyVaultReferenceResolver(options =>
 {
     // 🚨 Throw on failure (default: true)
-    // Fail fast is enabled by default; set to false for lenient mode
+    // When false, an unresolvable key is set to null — never to the literal
+    // "@Microsoft.KeyVault(...)" reference string.
     options.ThrowOnResolveFailure = true;
 
     // ⏱️ Timeout per secret (default: 30 seconds)
     options.Timeout = TimeSpan.FromSeconds(60);
 
+    // ⏱️ Total budget for resolving all references (default: 2 minutes)
+    options.OverallTimeout = TimeSpan.FromMinutes(2);
+
+    // 🔀 How many secrets are fetched concurrently (default: 8)
+    options.MaxConcurrency = 8;
+
     // 💾 Cache resolved secrets (default: true)
-    // Improves performance, secrets resolved once at startup
     options.EnableCaching = true;
 
-    // 🔐 Custom credential (default: DefaultAzureCredential)
+    // ⏳ How long a cached secret stays valid (default: infinite)
+    // Refresh on demand instead of polling — see Secret rotation below.
+    options.CacheTtl = Timeout.InfiniteTimeSpan;
+
+    // 🆔 Pin the identity (required when the host has several managed identities)
+    options.ManagedIdentityClientId = "00000000-0000-0000-0000-000000000000";
+
+    // 💻 Allow Azure CLI / Visual Studio / PowerShell credentials (default: false)
+    options.AllowDeveloperCredentials = false;
+
+    // 🚫 Exclude AZURE_CLIENT_ID/SECRET env-var credentials (default: false)
+    // Recommended when the workload uses a managed or workload identity: the
+    // environment credential otherwise sits ahead of managed identity in the chain.
+    options.ExcludeEnvironmentCredential = true;
+
+    // 🌍 Sovereign clouds
+    options.AuthorityHost = AzureAuthorityHosts.AzureGovernment;
+    options.AllowedVaultHostSuffixes = new List<string> { ".vault.usgovcloudapi.net" };
+
+    // 🎛️ Full control over the Key Vault client (retries, proxy, API version)
+    options.ClientOptions = new SecretClientOptions { Retry = { MaxRetries = 5 } };
+
+    // 🔐 Custom credential (overrides all credential options above)
     options.Credential = new DefaultAzureCredential();
 });
 ```
+
+### Allowed vault hosts
+
+A secret URI must use `https` and end with one of `AllowedVaultHostSuffixes`,
+which defaults to the Key Vault and Managed HSM suffixes of all four Azure
+clouds. This stops a configuration value — an environment variable, a mounted
+`appsettings.json`, a remote config service — from pointing a reference at a
+host of someone else's choosing and making your process authenticate to it
+during startup. Clear the list to disable the check.
+
+### Secret rotation
+
+Secrets are resolved **once**, while the configuration is being built, and the
+result is written into an in-memory configuration source. A rotated secret is
+therefore **not** picked up until the application restarts — wire your rotation
+process to a restart or a rolling deployment.
+
+`CacheTtl` defaults to `Timeout.InfiniteTimeSpan`: the resolver does not poll
+Key Vault on a timer, which would mostly buy traffic and throttling risk. When
+code resolves secrets through `ISecretResolver` directly rather than through
+`IConfiguration`, refresh on demand at the point you detect staleness:
+
+```csharp
+catch (SqlException ex) when (ex.Number == 18456) // Login failed
+{
+    var fresh = await resolver.ResolveSecretAsync(secretUri, forceRefresh: true, ct);
+    // or: resolver.InvalidateCache(secretUri);
+}
+```
+
+`KeyVaultSecretResolver` implements `IDisposable`; disposing it clears cached
+secret values.
 
 ---
 
@@ -265,19 +341,54 @@ string? uri = KeyVaultReferenceResolverExtensions.ExtractSecretUri(value);
 
 ## 🔒 Security Best Practices
 
-1. **Use Managed Identity in Azure** — No secrets to manage
-2. **Keep `ThrowOnResolveFailure` enabled (default)** — Fail fast if secrets can't be loaded
-3. **Use specific secret versions for critical configs** — Prevents unexpected changes
-4. **Grant minimal permissions** — Only `Get` permission on secrets is required
-5. **Audit access** — Enable Key Vault logging in Azure
+1. **Use Managed Identity or Workload Identity in Azure** — no secrets to manage, and set `ExcludeEnvironmentCredential = true` so the chain cannot be redirected
+2. **Keep `ThrowOnResolveFailure` enabled (default)** — fail fast if secrets can't be loaded
+3. **Use specific secret versions for critical configs** — prevents unexpected changes
+4. **Grant the minimum role** — `Key Vault Secrets User`, scoped as narrowly as possible
+5. **Audit access** — enable Key Vault diagnostic logging and alert on unexpected callers
 
-### Required Key Vault Permissions
+### Required Key Vault permissions
+
+With **Azure RBAC** (recommended), assign the built-in
+**Key Vault Secrets User** role — it grants exactly the `Get`/`List` data
+actions this library needs. `Key Vault Secrets Officer`, `Contributor` and
+`Owner` are all over-privileged for a consuming application.
+
+```bash
+# Scope to a single secret where possible, not the whole vault
+az role assignment create \
+  --role "Key Vault Secrets User" \
+  --assignee-object-id "<managed-identity-principal-id>" \
+  --assignee-principal-type ServicePrincipal \
+  --scope "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault>/secrets/<secret>"
+```
+
+With **legacy access policies**, grant only the `Get` secret permission:
 
 | Permission | Required |
 |------------|----------|
 | `secrets/get` | ✅ Yes |
 | `secrets/list` | ❌ No |
 | `secrets/set` | ❌ No |
+
+### Vault configuration prerequisites
+
+The library cannot compensate for a weakly configured vault. Confirm that:
+
+- **Azure RBAC** is enabled rather than legacy access policies
+- **Soft delete** and **purge protection** are on
+- **Expiration dates** are set on secrets (note: Key Vault does not block reads of an expired secret — expiry is advisory)
+- **Public network access** is disabled, with a private endpoint or firewall rules where the network topology allows
+- **Diagnostic logging** (`AuditEvent`) is sent to a Log Analytics workspace
+
+### What the library does and does not protect
+
+Resolved secrets become ordinary `string` values in `IConfiguration`. They
+cannot be zeroed, they appear in a full process dump, and
+`IConfigurationRoot.GetDebugView()` — which the ASP.NET Core developer exception
+page renders — prints them in clear text. **Do not enable the developer
+exception page, or any endpoint that dumps configuration, outside local
+development.**
 
 ---
 
@@ -330,27 +441,65 @@ HashiCorp Vault supports multiple authentication methods:
 // Token authentication (from VAULT_TOKEN env var)
 builder.AddHashiCorpVaultResolver();
 
-// Explicit token
+// Explicit token — never hard-code it; read it from the environment or a
+// mounted file so it does not end up committed in Program.cs
 builder.AddHashiCorpVaultResolver(options =>
 {
     options.VaultAddress = "https://vault.example.com";
-    options.AuthMethod = new TokenAuthMethod("my-token");
+    options.AuthMethod = new TokenAuthMethod(
+        Environment.GetEnvironmentVariable("VAULT_TOKEN")!);
 });
 
 // AppRole authentication
 builder.AddHashiCorpVaultResolver(options =>
 {
     options.VaultAddress = "https://vault.example.com";
-    options.AuthMethod = new AppRoleAuthMethod("role-id", "secret-id");
+    options.AuthMethod = new AppRoleAuthMethod(
+        Environment.GetEnvironmentVariable("VAULT_ROLE_ID")!,
+        Environment.GetEnvironmentVariable("VAULT_SECRET_ID")!);
 });
 
-// Kubernetes authentication
+// Kubernetes authentication — FromFile re-reads the service account token on
+// each login, so a rotated projected token keeps working
 builder.AddHashiCorpVaultResolver(options =>
 {
-    options.VaultAddress = "http://vault.vault.svc:8200";
+    options.VaultAddress = "https://vault.vault.svc:8200";
     options.AuthMethod = KubernetesAuthMethod.FromFile("my-app-role");
 });
 ```
+
+> **Warning**
+> Vault addresses must use `https`. Over plaintext HTTP the Vault token and the
+> returned secret both travel in the clear — including between pods inside a
+> cluster. If the in-cluster Vault presents a private CA certificate, trust that
+> CA rather than downgrading to HTTP. `AllowInsecureTransport = true` exists for
+> a local dev-mode Vault only.
+
+### Trusting the vault address in a reference
+
+A `@HashiCorp.Vault(VaultAddress=...)` reference carries its own address, and
+that address comes from configuration. Set `VaultAddress` in options to pin the
+resolver: a reference naming a different vault is then rejected rather than
+being sent your Vault credential. If you genuinely need several vaults, list
+them in `AllowedVaultAddresses`.
+
+### Minimum Vault policy
+
+```hcl
+# KV v2 — read one application's secrets and nothing else
+path "secret/data/myapp" {
+  capabilities = ["read"]
+}
+
+# Only if you also need secret metadata (versions, timestamps)
+path "secret/metadata/myapp" {
+  capabilities = ["read"]
+}
+```
+
+Prefer short-TTL, renewable tokens, and bound AppRole secret IDs
+(`secret_id_num_uses`, `secret_id_ttl`) over long-lived credentials in
+environment variables.
 
 ### Environment Variables
 
@@ -403,10 +552,18 @@ KeyVaultReferenceResolver/
 
 | Dependency | Version |
 |------------|---------|
-| .NET | 8.0+ |
+| Target framework | .NET Standard 2.0 |
+| .NET | 8.0+ (tested), .NET Core 2.0+ |
+| .NET Framework | 4.6.2+ |
 | Azure.Identity | 1.21.0+ |
 | Azure.Security.KeyVault.Secrets | 4.11.1+ |
 | Microsoft.Extensions.Configuration | 10.0.12+ |
+
+> **Note for .NET Framework consumers**
+> Key Vault requires TLS 1.2 or better. On .NET Framework, the TLS version is
+> chosen by the host process, not by this library: target 4.7.2+, or set
+> `AppContext.SetSwitch("Switch.System.Net.DontEnableSystemDefaultTlsVersions", false)`
+> at startup. Otherwise the handshake fails with an opaque connection error.
 
 ---
 
