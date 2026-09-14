@@ -93,7 +93,10 @@ namespace KeyVaultReferenceResolver
                         _secretCache[secretUri] = new CacheEntry(secretValue, _options.CacheTtl);
                     }
 
-                    _logger.LogInformation("Successfully resolved secret: {SecretName}", secretName);
+                    // Information level carries no secret name: these records are shipped to
+                    // aggregated log stores, where the set of names would amount to an inventory
+                    // of the vault's contents. The name is available at Debug.
+                    _logger.LogInformation("Successfully resolved secret from {VaultUri}", vaultUri);
                     return secretValue;
                 }
                 catch (OperationCanceledException ex) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)

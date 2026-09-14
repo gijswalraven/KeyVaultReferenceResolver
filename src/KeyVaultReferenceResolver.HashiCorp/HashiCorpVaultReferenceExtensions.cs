@@ -166,7 +166,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     .ConfigureAwait(false);
 
                 resolved[reference.Key] = secretValue;
-                logger.LogInformation("Resolved HashiCorp Vault reference: {ConfigKey}", reference.Key);
+                // Debug rather than Information - see the Azure-side extension for rationale.
+                logger.LogDebug("Resolved HashiCorp Vault reference: {ConfigKey}", reference.Key);
             }
             catch (Exception ex)
             {

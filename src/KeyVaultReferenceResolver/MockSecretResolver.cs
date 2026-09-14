@@ -67,7 +67,11 @@ namespace KeyVaultReferenceResolver
 
             if (_throwOnMissing)
             {
-                throw new KeyNotFoundException($"Secret not found: {secretUri}");
+                // Masked: this exception becomes the InnerException of the resolution failure
+                // that the configuration extension logs, so an unmasked URI here puts the
+                // secret name into the log by the back door.
+                throw new KeyNotFoundException(
+                    $"Secret not found: {KeyVaultReferenceResolutionException.MaskSecretUri(secretUri)}");
             }
 
             return string.Empty;

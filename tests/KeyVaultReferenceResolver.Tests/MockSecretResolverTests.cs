@@ -140,9 +140,11 @@ public class MockSecretResolverTests
         // Act
         Action act = () => resolver.ResolveSecret(TestSecretUri1);
 
-        // Assert
+        // Assert - the URI is masked, because this exception ends up as the InnerException
+        // that the configuration extension logs
         var ex = Assert.Throws<KeyNotFoundException>(act);
-        Assert.Equal($"Secret not found: {TestSecretUri1}", ex.Message);
+        Assert.Equal("Secret not found: https://myvault.vault.azure.net/secrets/***", ex.Message);
+        Assert.DoesNotContain("secret1", ex.Message);
     }
 
     [Fact]
@@ -181,9 +183,10 @@ public class MockSecretResolverTests
         // Act
         Func<Task> act = async () => await resolver.ResolveSecretAsync(TestSecretUri1, TestContext.Current.CancellationToken);
 
-        // Assert
+        // Assert - masked, as in the synchronous case
         var ex = await Assert.ThrowsAsync<KeyNotFoundException>(act);
-        Assert.Equal($"Secret not found: {TestSecretUri1}", ex.Message);
+        Assert.Equal("Secret not found: https://myvault.vault.azure.net/secrets/***", ex.Message);
+        Assert.DoesNotContain("secret1", ex.Message);
     }
 
     [Fact]
