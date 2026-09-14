@@ -142,27 +142,37 @@ namespace KeyVaultReferenceResolver
             options.Validate();
             logger = logger ?? NullLogger.Instance;
 
-            var tempConfig = builder.Build();
-
             // Key -> the distinct secret URIs referenced by that key's value. A value may embed
             // more than one reference, and may embed a reference alongside literal text.
             var referencingKeys = new Dictionary<string, string>();
             var distinctUris = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var kvp in tempConfig.AsEnumerable())
+            // builder.Build() instantiates a fresh set of providers, separate from the ones the
+            // caller's own Build() will create. Each AddJsonFile(reloadOnChange: true) among them
+            // holds a FileSystemWatcher, so leaving this undisposed leaks one per source for the
+            // lifetime of the process.
+            var tempConfig = builder.Build();
+            try
             {
-                if (string.IsNullOrEmpty(kvp.Value))
-                    continue;
-
-                var found = false;
-                foreach (var uri in EnumerateSecretUris(kvp.Value!))
+                foreach (var kvp in tempConfig.AsEnumerable())
                 {
-                    distinctUris.Add(uri);
-                    found = true;
-                }
+                    if (string.IsNullOrEmpty(kvp.Value))
+                        continue;
 
-                if (found)
-                    referencingKeys[kvp.Key] = kvp.Value!;
+                    var found = false;
+                    foreach (var uri in EnumerateSecretUris(kvp.Value!))
+                    {
+                        distinctUris.Add(uri);
+                        found = true;
+                    }
+
+                    if (found)
+                        referencingKeys[kvp.Key] = kvp.Value!;
+                }
+            }
+            finally
+            {
+                (tempConfig as IDisposable)?.Dispose();
             }
 
             if (distinctUris.Count == 0)
