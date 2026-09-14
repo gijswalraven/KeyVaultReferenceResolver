@@ -81,7 +81,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 _secretCache.TryGetValue(secretUri, out var cached) &&
                 !cached.IsExpired)
             {
-                _logger.LogDebug("Returning cached secret for: {SecretUri}", MaskSecretUri(secretUri));
+                _logger.LogDebug(HashiCorpLogEvents.CacheHit, "Returning cached secret for: {SecretUri}", MaskSecretUri(secretUri));
                 return cached.Value;
             }
 
@@ -95,7 +95,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
                 try
                 {
-                    _logger.LogDebug("Resolving secret {SecretKey} from path {SecretPath} at {VaultAddress}",
+                    _logger.LogDebug(HashiCorpLogEvents.SecretResolved,
+                        "Resolving secret {SecretKey} from path {SecretPath} at {VaultAddress}",
                         secretKey, MaskPath(secretPath), vaultAddress);
 
                     string secretValue;
@@ -109,6 +110,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
                         // so once the login token's TTL elapses every subsequent read fails with
                         // 403 for the life of the process. Evict the client and log in again.
                         _logger.LogInformation(
+                            HashiCorpLogEvents.Reauthenticated,
                             "Vault returned {Status} for {SecretPath}; re-authenticating and retrying once.",
                             ex.HttpStatusCode,
                             MaskPath(secretPath));
@@ -128,7 +130,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     // aggregated log stores, where key names such as "prod-db-root-password"
                     // would amount to an inventory of the vault's contents. The key is
                     // available at Debug.
-                    _logger.LogInformation("Successfully resolved secret from {SecretPath}",
+                    _logger.LogInformation(HashiCorpLogEvents.SecretRead, "Successfully resolved secret from {SecretPath}",
                         MaskPath(secretPath));
                     return secretValue;
                 }
@@ -373,6 +375,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
             catch (VaultApiException ex) when (IsMountVersionMismatch(ex))
             {
                 _logger.LogDebug(
+                    HashiCorpLogEvents.KvVersionProbe,
                     "Mount {MountPath} did not answer as KV v2 (HTTP {Status}); retrying as KV v1. " +
                     "Set KvVersion to skip this probe.",
                     mountPath,
@@ -483,6 +486,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 // workload identity - VAULT_TOKEN is tried before AppRole, which is tried
                 // before the Kubernetes service account - and nothing says so.
                 _logger.LogInformation(
+                    HashiCorpLogEvents.AuthMethodSelected,
                     "Authenticating to Vault at {VaultAddress} using {AuthMethod}",
                     address,
                     authMethod.GetType().Name);
