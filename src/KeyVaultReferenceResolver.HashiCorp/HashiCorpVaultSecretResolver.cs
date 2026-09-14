@@ -39,6 +39,9 @@ namespace KeyVaultReferenceResolver.HashiCorp
         private readonly ConcurrentDictionary<string, CacheEntry> _secretCache = new ConcurrentDictionary<string, CacheEntry>();
         private bool _disposed;
 
+        /// <summary>Separator for splitting a Vault secret path; static to avoid reallocating per call.</summary>
+        private static readonly char[] PathSeparators = { '/' };
+
         /// <summary>
         /// Creates a new instance of <see cref="HashiCorpVaultSecretResolver"/>.
         /// </summary>
@@ -81,7 +84,11 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 _secretCache.TryGetValue(secretUri, out var cached) &&
                 !cached.IsExpired)
             {
-                _logger.LogDebug(HashiCorpLogEvents.CacheHit, "Returning cached secret for: {SecretUri}", MaskSecretUri(secretUri));
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    var maskedUri = MaskSecretUri(secretUri);
+                    HashiCorpLog.CacheHit(_logger, maskedUri);
+                }
                 return cached.Value;
             }
 
@@ -95,9 +102,11 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
                 try
                 {
-                    _logger.LogDebug(HashiCorpLogEvents.SecretResolved,
-                        "Resolving secret {SecretKey} from path {SecretPath} at {VaultAddress}",
-                        secretKey, MaskPath(secretPath), vaultAddress);
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                    {
+                        var maskedPath = MaskPath(secretPath);
+                        HashiCorpLog.ResolvingSecret(_logger, secretKey, maskedPath, vaultAddress);
+                    }
 
                     string secretValue;
                     try
@@ -109,11 +118,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
                         // VaultSharp logs in once and caches the result on the auth method info,
                         // so once the login token's TTL elapses every subsequent read fails with
                         // 403 for the life of the process. Evict the client and log in again.
-                        _logger.LogInformation(
-                            HashiCorpLogEvents.Reauthenticated,
-                            "Vault returned {Status} for {SecretPath}; re-authenticating and retrying once.",
-                            ex.HttpStatusCode,
-                            MaskPath(secretPath));
+                        var maskedPath = MaskPath(secretPath);
+                        HashiCorpLog.Reauthenticated(_logger, ex.HttpStatusCode, maskedPath);
 
                         var freshClient = ReauthenticateClient(vaultAddress);
                         secretValue = await ReadSecretAsync(freshClient, secretPath, secretKey, cts.Token)
@@ -130,8 +136,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     // aggregated log stores, where key names such as "prod-db-root-password"
                     // would amount to an inventory of the vault's contents. The key is
                     // available at Debug.
-                    _logger.LogInformation(HashiCorpLogEvents.SecretRead, "Successfully resolved secret from {SecretPath}",
-                        MaskPath(secretPath));
+                    var loggedPath = MaskPath(secretPath);
+                    HashiCorpLog.SecretRead(_logger, loggedPath);
                     return secretValue;
                 }
                 catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
@@ -374,18 +380,13 @@ namespace KeyVaultReferenceResolver.HashiCorp
             }
             catch (VaultApiException ex) when (IsMountVersionMismatch(ex))
             {
-                _logger.LogDebug(
-                    HashiCorpLogEvents.KvVersionProbe,
-                    "Mount {MountPath} did not answer as KV v2 (HTTP {Status}); retrying as KV v1. " +
-                    "Set KvVersion to skip this probe.",
-                    mountPath,
-                    ex.HttpStatusCode);
+                HashiCorpLog.KvVersionProbe(_logger, mountPath, ex.HttpStatusCode);
 
                 return await ReadKvV1Async(client, mountPath, actualPath, secretPath, secretKey).ConfigureAwait(false);
             }
         }
 
-        private async Task<string> ReadKvV2Async(
+        private static async Task<string> ReadKvV2Async(
             IVaultClient client, string mountPath, string actualPath, string secretPath, string secretKey)
         {
             Secret<SecretData> secret = await client.V1.Secrets.KeyValue.V2.ReadSecretAsync(
@@ -401,7 +402,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
             return value?.ToString() ?? string.Empty;
         }
 
-        private async Task<string> ReadKvV1Async(
+        private static async Task<string> ReadKvV1Async(
             IVaultClient client, string mountPath, string actualPath, string secretPath, string secretKey)
         {
             var kvV1Secret = await client.V1.Secrets.KeyValue.V1.ReadSecretAsync(
@@ -452,7 +453,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
             // Handle paths like "secret/data/myapp" -> ("secret", "myapp")
             // or "kv/data/myapp/config" -> ("kv", "myapp/config")
 
-            var parts = fullPath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            var parts = fullPath.Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2)
             {
                 return (string.Empty, fullPath);
@@ -485,11 +486,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 // VAULT_TOKEN in a production container silently overrides the intended
                 // workload identity - VAULT_TOKEN is tried before AppRole, which is tried
                 // before the Kubernetes service account - and nothing says so.
-                _logger.LogInformation(
-                    HashiCorpLogEvents.AuthMethodSelected,
-                    "Authenticating to Vault at {VaultAddress} using {AuthMethod}",
-                    address,
-                    authMethod.GetType().Name);
+                HashiCorpLog.AuthMethodSelected(_logger, address, authMethod.GetType().Name);
 
                 var settings = new VaultClientSettings(address, authMethod.GetAuthMethodInfo());
 

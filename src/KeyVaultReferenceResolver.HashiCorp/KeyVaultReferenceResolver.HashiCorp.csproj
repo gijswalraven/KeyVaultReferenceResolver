@@ -10,8 +10,8 @@
     <PackageId>KeyVaultReferenceResolver.HashiCorp</PackageId>
     <Version>2.0.0</Version>
     <PackageReleaseNotes>Security release. Fail-closed resolution, vault host validation, hardened credential chain and on-demand cache refresh. Contains breaking behaviour changes - see CHANGELOG.md.</PackageReleaseNotes>
-    <Authors>KeyVaultReferenceResolver Contributors</Authors>
-    <Company>KeyVaultReferenceResolver Contributors</Company>
+    <Authors>Gijs Walraven</Authors>
+    <Company>Gijs Walraven</Company>
     <Description>HashiCorp Vault support for KeyVaultReferenceResolver. Resolve secrets from HashiCorp Vault in Microsoft.Extensions.Configuration using @HashiCorp.Vault(...) or hashicorp:// URI format. Supports Token, AppRole, and Kubernetes authentication.</Description>
     <PackageTags>HashiCorp;Vault;Configuration;Secrets;KeyVaultReferenceResolver</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -19,7 +19,7 @@
     <RepositoryUrl>https://github.com/gijswalraven/KeyVaultReferenceResolver</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <Copyright>Copyright (c) 2025 KeyVaultReferenceResolver Contributors</Copyright>
+    <Copyright>Copyright (c) 2025-2026 Gijs Walraven and contributors</Copyright>
 
     <!-- SourceLink for debugging -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

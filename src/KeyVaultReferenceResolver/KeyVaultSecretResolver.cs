@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
@@ -22,6 +23,9 @@ namespace KeyVaultReferenceResolver
         private readonly ConcurrentDictionary<string, SecretClient> _secretClients = new ConcurrentDictionary<string, SecretClient>();
         private readonly ConcurrentDictionary<string, CacheEntry> _secretCache = new ConcurrentDictionary<string, CacheEntry>();
         private bool _disposed;
+
+        /// <summary>Separator for splitting a secret URI path; static to avoid reallocating per call.</summary>
+        private static readonly char[] PathSeparators = { '/' };
 
         /// <summary>
         /// Creates a new instance of <see cref="KeyVaultSecretResolver"/>.
@@ -66,7 +70,14 @@ namespace KeyVaultReferenceResolver
                 _secretCache.TryGetValue(secretUri, out var cached) &&
                 !cached.IsExpired)
             {
-                _logger.LogDebug(LogEvents.CacheHit, "Returning cached secret for URI: {SecretUri}", MaskUri(secretUri));
+                // Guarded: masking allocates, and this path runs per secret on every
+                // resolution even when Debug is switched off.
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    var maskedUri = MaskUri(secretUri);
+                    Log.CacheHit(_logger, maskedUri);
+                }
+
                 return cached.Value;
             }
 
@@ -80,7 +91,7 @@ namespace KeyVaultReferenceResolver
 
                 try
                 {
-                    _logger.LogDebug(LogEvents.SecretResolved, "Resolving secret {SecretName} from vault {VaultUri}", secretName, vaultUri);
+                    Log.ResolvingSecret(_logger, secretName, vaultUri);
 
                     var response = string.IsNullOrEmpty(version)
                         ? await client.GetSecretAsync(secretName, cancellationToken: cts.Token).ConfigureAwait(false)
@@ -99,7 +110,7 @@ namespace KeyVaultReferenceResolver
                     // Information level carries no secret name: these records are shipped to
                     // aggregated log stores, where the set of names would amount to an inventory
                     // of the vault's contents. The name is available at Debug.
-                    _logger.LogInformation(LogEvents.SecretRead, "Successfully resolved secret from {VaultUri}", vaultUri);
+                    Log.SecretRead(_logger, vaultUri);
                     return secretValue;
                 }
                 catch (OperationCanceledException ex) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
@@ -213,11 +224,10 @@ namespace KeyVaultReferenceResolver
                         $"Secret {masked} is not valid until {properties.NotBefore.Value:u}.");
                 }
 
-                _logger.LogWarning(
-                    LogEvents.SecretNotYetValid,
-                    "Secret from {VaultUri} is not valid until {NotBefore:u} but is being used now",
+                Log.SecretNotYetValid(
+                    _logger,
                     properties.VaultUri,
-                    properties.NotBefore.Value);
+                    Format(properties.NotBefore.Value));
             }
 
             if (!properties.ExpiresOn.HasValue)
@@ -233,22 +243,25 @@ namespace KeyVaultReferenceResolver
                         $"Secret {masked} expired at {expiresOn:u}.");
                 }
 
-                _logger.LogWarning(
-                    LogEvents.SecretExpired,
-                    "Secret from {VaultUri} expired at {ExpiresOn:u} and is being used anyway",
-                    properties.VaultUri,
-                    expiresOn);
+                Log.SecretExpired(_logger, properties.VaultUri, Format(expiresOn));
             }
             else if (_options.ExpiryWarningThreshold > TimeSpan.Zero &&
                      expiresOn - now <= _options.ExpiryWarningThreshold)
             {
-                _logger.LogWarning(
-                    LogEvents.SecretExpiringSoon,
-                    "Secret from {VaultUri} expires at {ExpiresOn:u}, within the {Threshold} warning threshold",
+                Log.SecretExpiringSoon(
+                    _logger,
                     properties.VaultUri,
-                    expiresOn,
+                    Format(expiresOn),
                     _options.ExpiryWarningThreshold);
             }
+        }
+
+        /// <summary>
+        /// Formats a timestamp for a log message, invariant so records are comparable across hosts.
+        /// </summary>
+        private static string Format(DateTimeOffset value)
+        {
+            return value.ToString("u", CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -277,7 +290,7 @@ namespace KeyVaultReferenceResolver
             }
         }
 
-        private static TokenCredential CreateDefaultCredential(KeyVaultReferenceResolverOptions options)
+        private static DefaultAzureCredential CreateDefaultCredential(KeyVaultReferenceResolverOptions options)
         {
             var credentialOptions = new DefaultAzureCredentialOptions
             {
@@ -321,7 +334,7 @@ namespace KeyVaultReferenceResolver
 
             var vaultUri = new Uri($"{uri.Scheme}://{uri.Host}");
 
-            var pathParts = uri.AbsolutePath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            var pathParts = uri.AbsolutePath.Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries);
 
             if (pathParts.Length < 2 || !pathParts[0].Equals("secrets", StringComparison.OrdinalIgnoreCase))
             {
