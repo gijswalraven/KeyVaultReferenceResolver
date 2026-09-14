@@ -32,7 +32,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
             RegexTimeout);
 
         private readonly HashiCorpVaultResolverOptions _options;
-        private readonly ILogger<HashiCorpVaultSecretResolver> _logger;
+        private readonly ILogger _logger;
         private readonly ConcurrentDictionary<string, IVaultClient> _vaultClients = new ConcurrentDictionary<string, IVaultClient>();
         private readonly ConcurrentDictionary<string, string> _secretCache = new ConcurrentDictionary<string, string>();
 
@@ -40,10 +40,10 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// Creates a new instance of <see cref="HashiCorpVaultSecretResolver"/>.
         /// </summary>
         /// <param name="options">The resolver options.</param>
-        /// <param name="logger">Optional logger.</param>
+        /// <param name="logger">Optional logger. Accepts any <see cref="ILogger"/>, including <see cref="ILogger{TCategoryName}"/>.</param>
         public HashiCorpVaultSecretResolver(
             HashiCorpVaultResolverOptions? options = null,
-            ILogger<HashiCorpVaultSecretResolver>? logger = null)
+            ILogger? logger = null)
         {
             _options = options ?? new HashiCorpVaultResolverOptions();
             _logger = logger ?? NullLogger<HashiCorpVaultSecretResolver>.Instance;

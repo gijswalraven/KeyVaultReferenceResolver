@@ -85,9 +85,7 @@ namespace KeyVaultReferenceResolver
             options = options ?? new KeyVaultReferenceResolverOptions();
             logger = logger ?? NullLogger.Instance;
 
-            var resolver = new KeyVaultSecretResolver(
-                options,
-                logger as ILogger<KeyVaultSecretResolver>);
+            var resolver = new KeyVaultSecretResolver(options, logger);
 
             return builder.AddKeyVaultReferenceResolver(resolver, options, logger);
         }
