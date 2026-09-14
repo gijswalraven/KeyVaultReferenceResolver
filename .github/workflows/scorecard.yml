@@ -1,0 +1,49 @@
+name: OpenSSF Scorecard
+
+# Continuously measures the supply-chain controls this repository relies on - pinned
+# actions, scoped token permissions, branch protection, signed releases, dependency
+# update tooling - so a regression (an unpinned action, a widened permission) is caught
+# rather than noticed years later.
+
+on:
+  branch_protection_rule:
+  schedule:
+    # Weekly. Scorecard checks repository configuration, which changes independently of
+    # the code, so a push trigger would mostly re-measure the same thing.
+    - cron: "17 5 * * 1"
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Publish the results to the Security tab.
+      security-events: write
+      # Needed by the action to read branch protection settings.
+      id-token: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Not published to the public API, so no repo_token beyond the default is
+          # needed and the results stay visible only in the Security tab.
+          publish_results: false
+
+      - name: Upload results to the Security tab
+        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3
+        with:
+          sarif_file: results.sarif
