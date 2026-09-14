@@ -17,7 +17,7 @@ namespace KeyVaultReferenceResolver
     {
         private readonly TokenCredential _credential;
         private readonly KeyVaultReferenceResolverOptions _options;
-        private readonly ILogger<KeyVaultSecretResolver> _logger;
+        private readonly ILogger _logger;
         private readonly ConcurrentDictionary<string, SecretClient> _secretClients = new ConcurrentDictionary<string, SecretClient>();
         private readonly ConcurrentDictionary<string, string> _secretCache = new ConcurrentDictionary<string, string>();
 
@@ -25,10 +25,10 @@ namespace KeyVaultReferenceResolver
         /// Creates a new instance of <see cref="KeyVaultSecretResolver"/>.
         /// </summary>
         /// <param name="options">The resolver options.</param>
-        /// <param name="logger">Optional logger.</param>
+        /// <param name="logger">Optional logger. Accepts any <see cref="ILogger"/>, including <see cref="ILogger{TCategoryName}"/>.</param>
         public KeyVaultSecretResolver(
             KeyVaultReferenceResolverOptions? options = null,
-            ILogger<KeyVaultSecretResolver>? logger = null)
+            ILogger? logger = null)
         {
             _options = options ?? new KeyVaultReferenceResolverOptions();
             _credential = _options.Credential ?? new DefaultAzureCredential();

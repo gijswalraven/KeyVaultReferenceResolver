@@ -52,9 +52,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
             options = options ?? new HashiCorpVaultResolverOptions();
             logger = logger ?? NullLogger.Instance;
 
-            var resolver = new HashiCorpVaultSecretResolver(
-                options,
-                logger as ILogger<HashiCorpVaultSecretResolver>);
+            var resolver = new HashiCorpVaultSecretResolver(options, logger);
 
             return builder.AddHashiCorpVaultResolver(resolver, options, logger);
         }
