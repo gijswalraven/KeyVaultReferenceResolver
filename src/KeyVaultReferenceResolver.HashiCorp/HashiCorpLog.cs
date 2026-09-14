@@ -21,6 +21,14 @@ namespace KeyVaultReferenceResolver.HashiCorp
         public static partial void VaultAddressUnverified(ILogger logger, string vaultAddress);
 
         [LoggerMessage(
+            EventId = HashiCorpLogEvents.CacheFullId,
+            Level = LogLevel.Warning,
+            Message = "The secret cache holds its maximum of {Limit} entries; further secrets are resolved on " +
+                      "every call rather than cached. Raise MaxCacheEntries, or check whether references are " +
+                      "being generated at runtime.")]
+        public static partial void CacheFull(ILogger logger, int limit);
+
+        [LoggerMessage(
             EventId = HashiCorpLogEvents.CacheHitId,
             Level = LogLevel.Debug,
             Message = "Returning cached secret for: {SecretUri}")]

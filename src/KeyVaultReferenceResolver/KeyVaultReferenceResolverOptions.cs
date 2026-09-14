@@ -101,6 +101,15 @@ namespace KeyVaultReferenceResolver
         /// <c>false</c>, so that a vault cannot use its authentication challenge to redirect token
         /// acquisition at a resource of its choosing.
         /// </remarks>
+        /// <remarks>
+        /// Note that suppressing content logging does not suppress request URIs. An
+        /// <c>AzureEventSourceListener</c> attached by the application logs the full request line
+        /// at Information, which includes the secret <i>name</i> - for example
+        /// <c>GET https://contoso.vault.azure.net/secrets/prod-sql-admin</c>. Secret values are
+        /// never logged, but the set of names amounts to an inventory of the vault, which is why
+        /// this library keeps names out of its own Information-level records. If that matters,
+        /// filter the <c>Azure-Core</c> event source rather than relying on this setting.
+        /// </remarks>
         public SecretClientOptions? ClientOptions { get; set; }
 
         /// <summary>
@@ -163,6 +172,19 @@ namespace KeyVaultReferenceResolver
         /// </para>
         /// </remarks>
         public TimeSpan CacheTtl { get; set; } = System.Threading.Timeout.InfiniteTimeSpan;
+
+        /// <summary>
+        /// Gets or sets the largest number of secrets held in the in-memory cache.
+        /// Default is 1024. Set to 0 for no limit.
+        /// </summary>
+        /// <remarks>
+        /// Nothing removes a cache entry on its own, so a caller that resolves references chosen
+        /// at runtime - rather than the fixed set read at startup - would otherwise grow the cache
+        /// without limit, holding every secret it has ever seen in memory for the life of the
+        /// process. Once the limit is reached, further secrets are not cached and a warning is
+        /// logged once; entries already cached are kept.
+        /// </remarks>
+        public int MaxCacheEntries { get; set; } = 1024;
 
         /// <summary>
         /// Gets or sets the Key Vault DNS suffix used to build a URI from the
@@ -251,6 +273,9 @@ namespace KeyVaultReferenceResolver
 
             if (MaxConcurrency < 1)
                 throw new ArgumentOutOfRangeException(nameof(MaxConcurrency), MaxConcurrency, "MaxConcurrency must be at least 1.");
+
+            if (MaxCacheEntries < 0)
+                throw new ArgumentOutOfRangeException(nameof(MaxCacheEntries), MaxCacheEntries, "MaxCacheEntries must be zero (unlimited) or positive.");
         }
     }
 }

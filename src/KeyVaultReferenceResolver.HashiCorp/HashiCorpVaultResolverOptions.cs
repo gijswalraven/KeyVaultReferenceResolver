@@ -109,6 +109,17 @@ namespace KeyVaultReferenceResolver.HashiCorp
         public TimeSpan CacheTtl { get; set; } = System.Threading.Timeout.InfiniteTimeSpan;
 
         /// <summary>
+        /// Gets or sets the largest number of secrets held in the in-memory cache.
+        /// Default is 1024. Set to 0 for no limit.
+        /// </summary>
+        /// <remarks>
+        /// Nothing removes a cache entry on its own, so a caller that resolves references chosen at
+        /// runtime would otherwise hold every secret it has ever seen for the life of the process.
+        /// Past the limit, further secrets are not cached and a warning is logged once.
+        /// </remarks>
+        public int MaxCacheEntries { get; set; } = 1024;
+
+        /// <summary>
         /// Gets or sets whether a plaintext <c>http://</c> Vault address is permitted.
         /// Default is <c>false</c>.
         /// </summary>
@@ -177,6 +188,9 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
             if (MaxConcurrency < 1)
                 throw new ArgumentOutOfRangeException(nameof(MaxConcurrency), MaxConcurrency, "MaxConcurrency must be at least 1.");
+
+            if (MaxCacheEntries < 0)
+                throw new ArgumentOutOfRangeException(nameof(MaxCacheEntries), MaxCacheEntries, "MaxCacheEntries must be zero (unlimited) or positive.");
         }
 
         /// <summary>

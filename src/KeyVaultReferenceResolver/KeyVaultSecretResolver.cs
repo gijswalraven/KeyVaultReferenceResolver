@@ -23,6 +23,7 @@ namespace KeyVaultReferenceResolver
         private readonly ConcurrentDictionary<string, SecretClient> _secretClients = new ConcurrentDictionary<string, SecretClient>();
         private readonly ConcurrentDictionary<string, CacheEntry> _secretCache = new ConcurrentDictionary<string, CacheEntry>();
         private bool _disposed;
+        private int _cacheFullReported;
 
         /// <summary>Separator for splitting a secret URI path; static to avoid reallocating per call.</summary>
         private static readonly char[] PathSeparators = { '/' };
@@ -64,10 +65,16 @@ namespace KeyVaultReferenceResolver
             if (string.IsNullOrWhiteSpace(secretUri))
                 throw new ArgumentException("Secret URI cannot be null or empty.", nameof(secretUri));
 
-            // Check cache first
+            // Parsed before the cache is consulted, so the cache key is the canonical form of the
+            // reference rather than however it happened to be spelled. Two references differing
+            // only in host casing or an escaped character are one secret, and must be one entry -
+            // otherwise InvalidateCache leaves a stale copy behind under the other spelling.
+            var (vaultUri, secretName, version) = ParseSecretUri(secretUri);
+            var cacheKey = BuildCacheKey(vaultUri, secretName, version);
+
             if (!forceRefresh &&
                 _options.EnableCaching &&
-                _secretCache.TryGetValue(secretUri, out var cached) &&
+                _secretCache.TryGetValue(cacheKey, out var cached) &&
                 !cached.IsExpired)
             {
                 // Guarded: masking allocates, and this path runs per secret on every
@@ -80,8 +87,6 @@ namespace KeyVaultReferenceResolver
 
                 return cached.Value;
             }
-
-            var (vaultUri, secretName, version) = ParseSecretUri(secretUri);
 
             using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
@@ -101,9 +106,7 @@ namespace KeyVaultReferenceResolver
 
                     // Cache the resolved secret
                     if (_options.EnableCaching)
-                    {
-                        _secretCache[secretUri] = new CacheEntry(secretValue, _options.CacheTtl);
-                    }
+                        StoreInCache(cacheKey, secretValue);
 
                     // Information level carries no secret name: these records are shipped to
                     // aggregated log stores, where the set of names would amount to an inventory
@@ -161,7 +164,17 @@ namespace KeyVaultReferenceResolver
                 return;
             }
 
-            _secretCache.TryRemove(secretUri, out _);
+            // Normalised the same way as on insertion, so eviction is not defeated by the caller
+            // spelling the reference differently from whoever resolved it. A reference that cannot
+            // be parsed cannot be in the cache, so there is nothing to remove.
+            try
+            {
+                var (vaultUri, secretName, version) = ParseSecretUri(secretUri);
+                _secretCache.TryRemove(BuildCacheKey(vaultUri, secretName, version), out _);
+            }
+            catch (ArgumentException)
+            {
+            }
         }
 
         /// <summary>
@@ -393,10 +406,45 @@ namespace KeyVaultReferenceResolver
                     nameof(secretUri));
             }
 
-            var secretName = Uri.UnescapeDataString(pathParts[1]);
-            var version = pathParts.Length > 2 ? Uri.UnescapeDataString(pathParts[2]) : null;
+            var secretName = ValidateSegment(pathParts[1], "secret name", secretUri);
+            var version = pathParts.Length > 2
+                ? ValidateSegment(pathParts[2], "secret version", secretUri)
+                : null;
 
             return (vaultUri, secretName, version);
+        }
+
+        /// <summary>
+        /// Checks that a path segment is a legal Key Vault name and returns it unchanged.
+        /// </summary>
+        /// <remarks>
+        /// This used to call <see cref="Uri.UnescapeDataString"/>, on a path that
+        /// <see cref="Uri"/> has already partially decoded - so <c>%252e%252e%252f</c> arrived at
+        /// the SDK as <c>../</c>. Nothing was exploitable, because Azure.Core re-escapes the
+        /// segment when it builds the request path, but the safety of a value handed to a
+        /// credential store should not rest on what a dependency does with it afterwards.
+        /// Key Vault names are alphanumerics and hyphens, so anything else cannot name a real
+        /// secret and is rejected here instead.
+        /// </remarks>
+        private static string ValidateSegment(string segment, string description, string secretUri)
+        {
+            foreach (var c in segment)
+            {
+                var allowed = (c >= '0' && c <= '9')
+                    || (c >= 'a' && c <= 'z')
+                    || (c >= 'A' && c <= 'Z')
+                    || c == '-';
+
+                if (!allowed)
+                {
+                    throw new ArgumentException(
+                        $"Invalid {description} in {MaskUri(secretUri)}. Key Vault names may contain only " +
+                        "alphanumerics and hyphens.",
+                        nameof(secretUri));
+                }
+            }
+
+            return segment;
         }
 
         private void EnsureAllowedVaultHost(Uri uri)
@@ -490,6 +538,44 @@ namespace KeyVaultReferenceResolver
             clientOptions.DisableChallengeResourceVerification = false;
 
             return clientOptions;
+        }
+
+        /// <summary>
+        /// Builds the canonical cache key for a parsed reference.
+        /// </summary>
+        private static string BuildCacheKey(Uri vaultUri, string secretName, string? version)
+        {
+            // Uri already lower-cases the host. The secret name is case-sensitive in Key Vault,
+            // so it is not folded here.
+            return string.IsNullOrEmpty(version)
+                ? $"{vaultUri}secrets/{secretName}"
+                : $"{vaultUri}secrets/{secretName}/{version}";
+        }
+
+        /// <summary>
+        /// Adds a resolved secret to the cache, up to <see cref="KeyVaultReferenceResolverOptions.MaxCacheEntries"/>.
+        /// </summary>
+        /// <remarks>
+        /// The cache is keyed by reference and nothing ever removes an entry on its own, so a
+        /// caller resolving references chosen at runtime could grow it without limit. Once the
+        /// limit is reached further secrets are simply not cached, rather than evicting one that
+        /// is probably still in use: for the intended workload - a fixed set of secrets read at
+        /// startup - reaching the limit at all means something is wrong, and the warning matters
+        /// more than the eviction policy.
+        /// </remarks>
+        private void StoreInCache(string cacheKey, string secretValue)
+        {
+            var limit = _options.MaxCacheEntries;
+
+            if (limit > 0 && _secretCache.Count >= limit && !_secretCache.ContainsKey(cacheKey))
+            {
+                if (Interlocked.Exchange(ref _cacheFullReported, 1) == 0)
+                    Log.CacheFull(_logger, limit);
+
+                return;
+            }
+
+            _secretCache[cacheKey] = new CacheEntry(secretValue, _options.CacheTtl);
         }
 
         private static string MaskUri(string uri)

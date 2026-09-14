@@ -48,6 +48,9 @@ namespace KeyVaultReferenceResolver
         /// <summary>Numeric ID of <see cref="CacheHit"/>.</summary>
         public const int CacheHitId = 1201;
 
+        /// <summary>Numeric ID of <see cref="CacheFull"/>.</summary>
+        public const int CacheFullId = 1202;
+
         /// <summary>A single secret was read from Key Vault. Debug.</summary>
         public static readonly EventId SecretResolved = new EventId(SecretResolvedId, nameof(SecretResolved));
 
@@ -85,5 +88,11 @@ namespace KeyVaultReferenceResolver
 
         /// <summary>A secret was served from the in-memory cache. Debug.</summary>
         public static readonly EventId CacheHit = new EventId(CacheHitId, nameof(CacheHit));
+
+        /// <summary>
+        /// The secret cache reached MaxCacheEntries and stopped accepting new secrets. Warning,
+        /// raised once per resolver.
+        /// </summary>
+        public static readonly EventId CacheFull = new EventId(CacheFullId, nameof(CacheFull));
     }
 }

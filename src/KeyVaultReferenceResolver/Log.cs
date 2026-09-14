@@ -22,6 +22,14 @@ namespace KeyVaultReferenceResolver
         public static partial void CacheHit(ILogger logger, string secretUri);
 
         [LoggerMessage(
+            EventId = LogEvents.CacheFullId,
+            Level = LogLevel.Warning,
+            Message = "The secret cache holds its maximum of {Limit} entries; further secrets are resolved on " +
+                      "every call rather than cached. Raise MaxCacheEntries, or check whether references are " +
+                      "being generated at runtime.")]
+        public static partial void CacheFull(ILogger logger, int limit);
+
+        [LoggerMessage(
             EventId = LogEvents.SecretResolvedId,
             Level = LogLevel.Debug,
             Message = "Resolving secret {SecretName} from vault {VaultUri}")]
