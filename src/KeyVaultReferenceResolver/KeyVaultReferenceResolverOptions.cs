@@ -149,6 +149,26 @@ namespace KeyVaultReferenceResolver
         public TimeSpan CacheTtl { get; set; } = System.Threading.Timeout.InfiniteTimeSpan;
 
         /// <summary>
+        /// Gets or sets whether a secret outside its validity period is rejected rather than used.
+        /// Default is <c>false</c>, which logs a warning and uses the secret anyway.
+        /// </summary>
+        /// <remarks>
+        /// Key Vault does not block reads of a secret whose <c>ExpiresOn</c> has passed - for
+        /// secrets, expiry is advisory metadata, which is why the CIS "set an expiration date on
+        /// all secrets" control has no effect on its own. Enabling this makes the control
+        /// enforceable at the consumer. It defaults to off because turning it on can stop an
+        /// application that is currently working with a secret whose expiry date was never
+        /// maintained.
+        /// </remarks>
+        public bool RejectSecretsOutsideValidityPeriod { get; set; }
+
+        /// <summary>
+        /// Gets or sets how long before expiry a warning is logged for a resolved secret.
+        /// Default is 7 days. Set to <see cref="TimeSpan.Zero"/> to disable.
+        /// </summary>
+        public TimeSpan ExpiryWarningThreshold { get; set; } = TimeSpan.FromDays(7);
+
+        /// <summary>
         /// Gets or sets the host suffixes a secret URI must end with to be resolved.
         /// Defaults to <see cref="DefaultAllowedVaultHostSuffixes"/>.
         /// </summary>

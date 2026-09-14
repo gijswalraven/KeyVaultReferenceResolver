@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure;
 using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
@@ -85,6 +86,8 @@ namespace KeyVaultReferenceResolver
                         ? await client.GetSecretAsync(secretName, cancellationToken: cts.Token).ConfigureAwait(false)
                         : await client.GetSecretAsync(secretName, version, cts.Token).ConfigureAwait(false);
 
+                    CheckValidityPeriod(response.Value, secretUri);
+
                     var secretValue = response.Value.Value;
 
                     // Cache the resolved secret
@@ -102,6 +105,15 @@ namespace KeyVaultReferenceResolver
                 catch (OperationCanceledException ex) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
                     throw new TimeoutException($"Timeout resolving secret from {MaskUri(secretUri)}", ex);
+                }
+                catch (RequestFailedException ex)
+                {
+                    // Map the status onto something an operator can act on. "403" on its own
+                    // does not distinguish a missing role assignment from a firewall rule, and
+                    // a throttling response reads as a generic failure.
+                    throw new KeyVaultReferenceResolutionException(
+                        DescribeRequestFailure(ex, vaultUri, secretUri),
+                        ex);
                 }
             }
         }
@@ -173,6 +185,93 @@ namespace KeyVaultReferenceResolver
             }
 
             _disposed = true;
+        }
+
+        /// <summary>
+        /// Warns when a secret is outside its validity period, and rejects it when configured to.
+        /// </summary>
+        /// <remarks>
+        /// Key Vault does not block a GET on a secret whose ExpiresOn has passed - for secrets,
+        /// expiry is advisory metadata. Without this check the library hands the application an
+        /// expired credential and the failure surfaces later, at the downstream service, as an
+        /// authentication error with no hint as to why.
+        /// </remarks>
+        private void CheckValidityPeriod(KeyVaultSecret secret, string secretUri)
+        {
+            var properties = secret.Properties;
+            if (properties == null)
+                return;
+
+            var now = DateTimeOffset.UtcNow;
+            var masked = MaskUri(secretUri);
+
+            if (properties.NotBefore.HasValue && now < properties.NotBefore.Value)
+            {
+                if (_options.RejectSecretsOutsideValidityPeriod)
+                {
+                    throw new KeyVaultReferenceResolutionException(
+                        $"Secret {masked} is not valid until {properties.NotBefore.Value:u}.");
+                }
+
+                _logger.LogWarning(
+                    "Secret from {VaultUri} is not valid until {NotBefore:u} but is being used now",
+                    properties.VaultUri,
+                    properties.NotBefore.Value);
+            }
+
+            if (!properties.ExpiresOn.HasValue)
+                return;
+
+            var expiresOn = properties.ExpiresOn.Value;
+
+            if (now >= expiresOn)
+            {
+                if (_options.RejectSecretsOutsideValidityPeriod)
+                {
+                    throw new KeyVaultReferenceResolutionException(
+                        $"Secret {masked} expired at {expiresOn:u}.");
+                }
+
+                _logger.LogWarning(
+                    "Secret from {VaultUri} expired at {ExpiresOn:u} and is being used anyway",
+                    properties.VaultUri,
+                    expiresOn);
+            }
+            else if (_options.ExpiryWarningThreshold > TimeSpan.Zero &&
+                     expiresOn - now <= _options.ExpiryWarningThreshold)
+            {
+                _logger.LogWarning(
+                    "Secret from {VaultUri} expires at {ExpiresOn:u}, within the {Threshold} warning threshold",
+                    properties.VaultUri,
+                    expiresOn,
+                    _options.ExpiryWarningThreshold);
+            }
+        }
+
+        /// <summary>
+        /// Turns a Key Vault request failure into a message that names the likely cause.
+        /// </summary>
+        private static string DescribeRequestFailure(RequestFailedException ex, Uri vaultUri, string secretUri)
+        {
+            var masked = MaskUri(secretUri);
+
+            switch (ex.Status)
+            {
+                case 401:
+                case 403:
+                    return $"Access denied reading {masked} (HTTP {ex.Status}). " +
+                           "Check that the application identity holds the 'Key Vault Secrets User' role " +
+                           $"on {vaultUri} (or 'Get' in a legacy access policy), and that the vault firewall " +
+                           "allows this caller.";
+                case 404:
+                    return $"Secret not found at {masked} (HTTP 404). Check the secret name, and whether the " +
+                           "secret has been deleted - a soft-deleted secret must be recovered before it can be read.";
+                case 429:
+                    return $"Key Vault throttled the request for {masked} (HTTP 429). Reduce MaxConcurrency, " +
+                           "raise Timeout so the SDK's backoff can complete, or stagger application startup.";
+                default:
+                    return $"Failed to read {masked} from Key Vault (HTTP {ex.Status}).";
+            }
         }
 
         private static TokenCredential CreateDefaultCredential(KeyVaultReferenceResolverOptions options)
