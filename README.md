@@ -202,6 +202,18 @@ builder.AddKeyVaultReferenceResolver(options =>
     // ⏰ Warn this far ahead of a secret's expiry (default: 7 days)
     options.ExpiryWarningThreshold = TimeSpan.FromDays(14);
 
+    // 🏷️ Restrict resolution to your own vaults (default: empty)
+    // The suffix list below establishes that a host is a Key Vault, not whose.
+    // This is the setting that pins resolution to the vaults you own.
+    options.AllowedVaultHosts = new List<string> { "contoso-prod.vault.azure.net" };
+
+    // 🏢 Pin the credential to one tenant (default: null, leaving the SDK default)
+    // An empty list also overrides AZURE_ADDITIONALLY_ALLOWED_TENANTS.
+    options.AdditionallyAllowedTenants = new List<string>();
+
+    // 📦 Largest number of secrets held in the cache (default: 1024, 0 = unlimited)
+    options.MaxCacheEntries = 1024;
+
     // 🌍 Sovereign clouds
     options.AuthorityHost = AzureAuthorityHosts.AzureGovernment;
     options.VaultDnsSuffix = "vault.usgovcloudapi.net";
@@ -217,12 +229,57 @@ builder.AddKeyVaultReferenceResolver(options =>
 
 ### Allowed vault hosts
 
-A secret URI must use `https` and end with one of `AllowedVaultHostSuffixes`,
-which defaults to the Key Vault and Managed HSM suffixes of all four Azure
-clouds. This stops a configuration value — an environment variable, a mounted
-`appsettings.json`, a remote config service — from pointing a reference at a
-host of someone else's choosing and making your process authenticate to it
-during startup. Clear the list to disable the check.
+A secret URI must use `https` and match one of `AllowedVaultHostSuffixes`, which
+defaults to the Key Vault and Managed HSM suffixes of all four Azure clouds.
+This stops a configuration value — an environment variable, a mounted
+`appsettings.json`, a remote config service — from pointing a reference at an
+arbitrary host and making your process authenticate to it during startup. Clear
+the list to disable the check.
+
+**The suffix list is not enough on its own.** It establishes that a host is a
+Key Vault, not whose Key Vault. `https://someone-elses.vault.azure.net` matches
+the default list perfectly well, and resolving against it presents a token for
+your application's identity to a vault under someone else's control — who can
+then replay that token against the vaults your identity legitimately reaches.
+
+Set `AllowedVaultHosts` to the exact hosts you own:
+
+```csharp
+options.AllowedVaultHosts = new List<string>
+{
+    "contoso-prod.vault.azure.net",
+    "contoso-shared.vault.azure.net"
+};
+```
+
+When `AllowedVaultHosts` is non-empty it is authoritative and the suffix list is
+not consulted, so a suffix entry cannot widen it. Suffix entries match on a
+label boundary, so `contoso.vault.azure.net` does not admit
+`evilcontoso.vault.azure.net`.
+
+### Register the resolver last
+
+References are resolved **once**, in a single sweep, when
+`AddKeyVaultReferenceResolver` is called. A configuration source registered
+*after* it overrides the resolved secrets and is never itself resolved — so a
+reference in that source reaches your application as the literal
+`@Microsoft.KeyVault(...)` string and gets used as a credential. The same
+applies to a `reloadOnChange` source that gains a reference after startup.
+
+The library logs `ResolverNotLastSource` (event 1005) at `Error` when it detects
+a later source. To fail startup instead, check the built configuration:
+
+```csharp
+var configuration = builder.Build();
+configuration.AssertNoUnresolvedReferences(logger); // throws, naming the keys
+
+// or, to inspect without throwing:
+foreach (var key in configuration.FindUnresolvedReferences())
+    Console.WriteLine($"unresolved: {key}");
+```
+
+The HashiCorp package has the same pair as `AssertNoUnresolvedVaultReferences`
+and `FindUnresolvedVaultReferences`.
 
 ### Secret rotation
 
@@ -524,7 +581,7 @@ builder.AddHashiCorpVaultResolver(options =>
 > CA rather than downgrading to HTTP. `AllowInsecureTransport = true` exists for
 > a local dev-mode Vault only.
 
-### Trusting the vault address in a reference
+### Strict vault address validation
 
 A `@HashiCorp.Vault(VaultAddress=...)` reference carries its own address, and
 that address comes from configuration. Set `VaultAddress` in options to pin the
