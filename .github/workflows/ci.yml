@@ -19,7 +19,7 @@ jobs:
       # Actions are pinned to commit SHAs: a tag like v4 is mutable and can be
       # repointed at arbitrary code by the action owner or a compromised
       # maintainer account. Dependabot keeps the SHAs and comments current.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Nothing here pushes, so do not leave GITHUB_TOKEN in .git/config
           # where any later step can read it.
