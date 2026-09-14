@@ -378,6 +378,25 @@ namespace KeyVaultReferenceResolver
 
         private void EnsureAllowedVaultHost(Uri uri)
         {
+            // An exact-host list is authoritative: it is the only setting that restricts resolution
+            // to this application's own vaults, so a suffix entry must not be able to widen it.
+            var hosts = _options.AllowedVaultHosts;
+            if (hosts != null && hosts.Count > 0)
+            {
+                foreach (var host in hosts)
+                {
+                    if (!string.IsNullOrWhiteSpace(host) &&
+                        uri.Host.Equals(host.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                }
+
+                throw new ArgumentException(
+                    $"Vault host '{uri.Host}' is not listed in {nameof(KeyVaultReferenceResolverOptions)}.{nameof(KeyVaultReferenceResolverOptions.AllowedVaultHosts)}.",
+                    nameof(uri));
+            }
+
             var allowed = _options.AllowedVaultHostSuffixes;
             if (allowed == null || allowed.Count == 0)
                 return;
@@ -387,7 +406,7 @@ namespace KeyVaultReferenceResolver
                 if (string.IsNullOrWhiteSpace(suffix))
                     continue;
 
-                if (uri.Host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                if (MatchesHostSuffix(uri.Host, suffix))
                     return;
             }
 
@@ -395,6 +414,34 @@ namespace KeyVaultReferenceResolver
                 $"Vault host '{uri.Host}' is not an allowed Key Vault host. " +
                 $"Add its suffix to {nameof(KeyVaultReferenceResolverOptions)}.{nameof(KeyVaultReferenceResolverOptions.AllowedVaultHostSuffixes)} if this is intentional.",
                 nameof(uri));
+        }
+
+        /// <summary>
+        /// Matches a host against an allowed suffix at a label boundary.
+        /// </summary>
+        /// <remarks>
+        /// A plain <see cref="string.EndsWith(string, StringComparison)"/> matches inside a label,
+        /// so an operator narrowing the list to their own vault by writing
+        /// <c>contoso.vault.azure.net</c> would also admit <c>evilcontoso.vault.azure.net</c> -
+        /// which anyone can create. Requiring the character before the match to be a dot, or the
+        /// whole host to be equal, removes that. A leading dot on the entry is optional so the
+        /// shipped defaults and a hand-written entry behave the same way.
+        /// </remarks>
+        internal static bool MatchesHostSuffix(string host, string suffix)
+        {
+            var trimmed = suffix.Trim().TrimStart('.');
+
+            if (trimmed.Length == 0)
+                return false;
+
+            if (host.Equals(trimmed, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var boundary = host.Length - trimmed.Length - 1;
+
+            return boundary > 0
+                && host[boundary] == '.'
+                && host.EndsWith(trimmed, StringComparison.OrdinalIgnoreCase);
         }
 
         private SecretClient GetOrCreateClient(Uri vaultUri)
