@@ -4,12 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
+Requires the **.NET 10 SDK** (see `global.json`). The libraries still target
+netstandard2.0; the SDK floor exists because the test projects run on
+Microsoft.Testing.Platform.
+
 ```bash
 # Build the solution
 dotnet build
 
 # Build in release mode
 dotnet build -c Release
+
+# Run the tests
+dotnet test
 
 # Create NuGet package
 dotnet pack -c Release
@@ -46,7 +53,22 @@ The library follows a simple provider pattern:
 
 ## Testing Notes
 
-No test project exists yet. When adding tests:
+Two test projects live under `tests/`, one per library, both on **xunit.v3**
+running under Microsoft.Testing.Platform. `dotnet test` works via the
+`test.runner` key in `global.json`; the projects are also self-executing
+(`OutputType=Exe`), so you can run a test assembly directly.
+
+When adding tests:
+
+- Use plain XUnit assertions (`Assert.Equal`, `Assert.Throws<T>`, ...).
+  FluentAssertions is deliberately not referenced.
+- Note `Assert.Throws<T>` matches the exception type *exactly* — use
+  `Assert.ThrowsAny<T>` when a derived type is acceptable.
 - Use `MockSecretResolver` for unit tests to avoid Azure dependencies
 - `MockSecretResolver` supports fluent API: `.AddSecret(uri, value)` chaining
 - Set `throwOnMissing: false` for silent mode (returns empty string instead of throwing)
+- Pass `TestContext.Current.CancellationToken` to async calls that accept one
+  (enforced by analyzer xUnit1051).
+- Anything that mutates the process-wide `VAULT_*` environment variables must
+  join the `"VaultEnvironment"` collection, which disables parallelization —
+  otherwise it races with the other env-var tests.

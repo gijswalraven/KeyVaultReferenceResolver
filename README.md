@@ -1,6 +1,6 @@
 # 🔐 KeyVaultReferenceResolver
 
-[![NuGet](https://img.shields.io/badge/nuget-v1.0.0-blue.svg)](https://www.nuget.org/packages/KeyVaultReferenceResolver)
+[![NuGet](https://img.shields.io/badge/nuget-v1.2.0-blue.svg)](https://www.nuget.org/packages/KeyVaultReferenceResolver)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -404,9 +404,9 @@ KeyVaultReferenceResolver/
 | Dependency | Version |
 |------------|---------|
 | .NET | 8.0+ |
-| Azure.Identity | 1.13.1+ |
-| Azure.Security.KeyVault.Secrets | 4.7.0+ |
-| Microsoft.Extensions.Configuration | 8.0.0+ |
+| Azure.Identity | 1.21.0+ |
+| Azure.Security.KeyVault.Secrets | 4.11.1+ |
+| Microsoft.Extensions.Configuration | 10.0.12+ |
 
 ---
 
