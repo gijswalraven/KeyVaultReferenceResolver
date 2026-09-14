@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Azure.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -13,22 +17,33 @@ namespace KeyVaultReferenceResolver
     /// </summary>
     public static class KeyVaultReferenceResolverExtensions
     {
+        // Regex timeout to prevent ReDoS attacks on attacker-influenced configuration values.
+        private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
+
         /// <summary>
         /// Pattern to match Key Vault references using SecretUri format.
         /// Supports format: @Microsoft.KeyVault(SecretUri=https://vault.vault.azure.net/secrets/secret-name)
         /// </summary>
         private static readonly Regex SecretUriPattern = new Regex(
-            @"@Microsoft\.KeyVault\(SecretUri=(?<uri>https://[^)]+)\)",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            @"@Microsoft\.KeyVault\(SecretUri=(?<uri>https://[^)\s\\]+)\)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled,
+            RegexTimeout);
 
         /// <summary>
         /// Pattern to match Key Vault references using VaultName format.
         /// Supports format: @Microsoft.KeyVault(VaultName=myvault;SecretName=mysecret) or
         /// @Microsoft.KeyVault(VaultName=myvault;SecretName=mysecret;SecretVersion=version123)
         /// </summary>
+        /// <remarks>
+        /// The vault, secret and version groups are constrained to Azure's own naming rules
+        /// (alphanumerics and hyphens). A looser pattern would let a tampered configuration value
+        /// inject path or authority characters into the URI built in <see cref="TryExtractSecretUri"/>
+        /// and redirect the lookup to a host outside Key Vault.
+        /// </remarks>
         private static readonly Regex VaultNamePattern = new Regex(
-            @"@Microsoft\.KeyVault\(VaultName=(?<vault>[^;)]+);SecretName=(?<secret>[^;)]+)(?:;SecretVersion=(?<version>[^)]+))?\)",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            @"@Microsoft\.KeyVault\(VaultName=(?<vault>[A-Za-z0-9-]{3,24});SecretName=(?<secret>[A-Za-z0-9-]{1,127})(?:;SecretVersion=(?<version>[A-Za-z0-9]{1,64}))?\)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled,
+            RegexTimeout);
 
         /// <summary>
         /// Adds Key Vault reference resolution to the configuration builder using default options.
@@ -50,6 +65,9 @@ namespace KeyVaultReferenceResolver
             this IConfigurationBuilder builder,
             TokenCredential credential)
         {
+            if (credential == null)
+                throw new ArgumentNullException(nameof(credential));
+
             return builder.AddKeyVaultReferenceResolver(
                 new KeyVaultReferenceResolverOptions { Credential = credential },
                 logger: null);
@@ -65,6 +83,9 @@ namespace KeyVaultReferenceResolver
             this IConfigurationBuilder builder,
             Action<KeyVaultReferenceResolverOptions> configureOptions)
         {
+            if (configureOptions == null)
+                throw new ArgumentNullException(nameof(configureOptions));
+
             var options = new KeyVaultReferenceResolverOptions();
             configureOptions(options);
             return builder.AddKeyVaultReferenceResolver(options, logger: null);
@@ -98,6 +119,14 @@ namespace KeyVaultReferenceResolver
         /// <param name="options">The resolver options.</param>
         /// <param name="logger">Optional logger for diagnostics.</param>
         /// <returns>The configuration builder for chaining.</returns>
+        /// <remarks>
+        /// References are resolved with bounded concurrency under a single
+        /// <see cref="KeyVaultReferenceResolverOptions.OverallTimeout"/> budget. A reference that
+        /// cannot be resolved sets its configuration key to <c>null</c>, so the literal
+        /// <c>@Microsoft.KeyVault(...)</c> string is never handed to the application as if it were
+        /// the secret, regardless of
+        /// <see cref="KeyVaultReferenceResolverOptions.ThrowOnResolveFailure"/>.
+        /// </remarks>
         public static IConfigurationBuilder AddKeyVaultReferenceResolver(
             this IConfigurationBuilder builder,
             ISecretResolver secretResolver,
@@ -110,10 +139,11 @@ namespace KeyVaultReferenceResolver
                 throw new ArgumentNullException(nameof(secretResolver));
 
             options = options ?? new KeyVaultReferenceResolverOptions();
+            options.Validate();
             logger = logger ?? NullLogger.Instance;
 
             var tempConfig = builder.Build();
-            var resolvedValues = new Dictionary<string, string?>();
+            var references = new List<KeyValuePair<string, string>>();
 
             foreach (var kvp in tempConfig.AsEnumerable())
             {
@@ -124,34 +154,100 @@ namespace KeyVaultReferenceResolver
                 if (secretUri == null)
                     continue;
 
-                try
-                {
-                    var secretValue = secretResolver.ResolveSecret(secretUri);
-                    resolvedValues[kvp.Key] = secretValue;
-                    logger.LogInformation("Resolved Key Vault reference: {ConfigKey}", kvp.Key);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Failed to resolve Key Vault reference for '{ConfigKey}'", kvp.Key);
-
-                    if (options.ThrowOnResolveFailure)
-                    {
-                        throw new KeyVaultReferenceResolutionException(
-                            $"Failed to resolve Key Vault reference for configuration key '{kvp.Key}'",
-                            kvp.Key,
-                            secretUri,
-                            ex);
-                    }
-                }
+                references.Add(new KeyValuePair<string, string>(kvp.Key, secretUri));
             }
+
+            if (references.Count == 0)
+                return builder;
+
+            var resolvedValues = ResolveReferences(references, secretResolver, options, logger);
 
             if (resolvedValues.Count > 0)
             {
                 builder.AddInMemoryCollection(resolvedValues);
-                logger.LogInformation("Resolved {Count} Key Vault reference(s)", resolvedValues.Count);
+
+                var succeeded = resolvedValues.Count(pair => pair.Value != null);
+                logger.LogInformation(
+                    "Resolved {Count} of {Total} Key Vault reference(s)",
+                    succeeded,
+                    resolvedValues.Count);
             }
 
             return builder;
+        }
+
+        /// <summary>
+        /// Resolves every reference with bounded concurrency under one overall time budget.
+        /// </summary>
+        private static Dictionary<string, string?> ResolveReferences(
+            List<KeyValuePair<string, string>> references,
+            ISecretResolver secretResolver,
+            KeyVaultReferenceResolverOptions options,
+            ILogger logger)
+        {
+            var resolved = new ConcurrentDictionary<string, string?>();
+            var failures = new ConcurrentQueue<KeyVaultReferenceResolutionException>();
+
+            using (var overallCts = new CancellationTokenSource())
+            using (var gate = new SemaphoreSlim(options.MaxConcurrency))
+            {
+                if (options.OverallTimeout != System.Threading.Timeout.InfiniteTimeSpan)
+                    overallCts.CancelAfter(options.OverallTimeout);
+
+                var tasks = references
+                    .Select(reference => ResolveOneAsync(
+                        reference, secretResolver, logger, resolved, failures, gate, overallCts.Token))
+                    .ToArray();
+
+                Task.WhenAll(tasks).GetAwaiter().GetResult();
+            }
+
+            if (options.ThrowOnResolveFailure && failures.TryDequeue(out var firstFailure))
+                throw firstFailure;
+
+            return new Dictionary<string, string?>(resolved);
+        }
+
+        private static async Task ResolveOneAsync(
+            KeyValuePair<string, string> reference,
+            ISecretResolver secretResolver,
+            ILogger logger,
+            ConcurrentDictionary<string, string?> resolved,
+            ConcurrentQueue<KeyVaultReferenceResolutionException> failures,
+            SemaphoreSlim gate,
+            CancellationToken cancellationToken)
+        {
+            await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                var secretValue = await secretResolver
+                    .ResolveSecretAsync(reference.Value, cancellationToken)
+                    .ConfigureAwait(false);
+
+                resolved[reference.Key] = secretValue;
+                logger.LogInformation("Resolved Key Vault reference: {ConfigKey}", reference.Key);
+            }
+            catch (Exception ex)
+            {
+                // Fail closed. Leaving the key unset would let the application read the literal
+                // "@Microsoft.KeyVault(SecretUri=...)" string and use it as a credential.
+                resolved[reference.Key] = null;
+
+                failures.Enqueue(new KeyVaultReferenceResolutionException(
+                    $"Failed to resolve Key Vault reference for configuration key '{reference.Key}'",
+                    reference.Key,
+                    reference.Value,
+                    ex));
+
+                logger.LogError(
+                    ex,
+                    "Failed to resolve Key Vault reference for '{ConfigKey}'; the value has been set to null",
+                    reference.Key);
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
 
         /// <summary>
@@ -203,7 +299,8 @@ namespace KeyVaultReferenceResolver
                 var secretName = vaultNameMatch.Groups["secret"].Value;
                 var version = vaultNameMatch.Groups["version"].Value;
 
-                // Construct the full URI
+                // Construct the full URI. The pattern restricts every group to alphanumerics and
+                // hyphens, so nothing here can alter the authority of the resulting URI.
                 var uri = $"https://{vaultName}.vault.azure.net/secrets/{secretName}";
                 if (!string.IsNullOrEmpty(version))
                 {

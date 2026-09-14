@@ -142,6 +142,44 @@ public class KeyVaultReferenceResolverExtensionsTests
 
     #endregion
 
+    #region VaultName Injection Tests
+
+    [Theory]
+    // A '/' ends the host and makes the ".vault.azure.net" suffix part of the path.
+    [InlineData("@Microsoft.KeyVault(VaultName=evil.example/x;SecretName=my-secret)")]
+    // A '@' turns everything before it into userinfo, so the authority becomes evil.example.
+    [InlineData("@Microsoft.KeyVault(VaultName=a@evil.example;SecretName=my-secret)")]
+    // A '?' starts the query string, again cutting the intended suffix off the host.
+    [InlineData("@Microsoft.KeyVault(VaultName=evil.example?;SecretName=my-secret)")]
+    [InlineData("@Microsoft.KeyVault(VaultName=evil.example#;SecretName=my-secret)")]
+    [InlineData("@Microsoft.KeyVault(VaultName=myvault;SecretName=../../other)")]
+    public void ExtractSecretUri_VaultNameWithAuthorityInjection_ReturnsNull(string value)
+    {
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(value);
+
+        // Assert - a malformed reference must not produce a URI pointing outside Key Vault
+        Assert.Null(result);
+        Assert.False(KeyVaultReferenceResolverExtensions.IsKeyVaultReference(value));
+    }
+
+    [Theory]
+    // Vault names are 3-24 characters of alphanumerics and hyphens.
+    [InlineData("@Microsoft.KeyVault(VaultName=ab;SecretName=my-secret)")]
+    [InlineData("@Microsoft.KeyVault(VaultName=this-vault-name-is-far-too-long;SecretName=my-secret)")]
+    [InlineData("@Microsoft.KeyVault(VaultName=my_vault;SecretName=my-secret)")]
+    [InlineData("@Microsoft.KeyVault(VaultName=myvault;SecretName=my_secret)")]
+    public void ExtractSecretUri_VaultNameOutsideAzureNamingRules_ReturnsNull(string value)
+    {
+        // Act
+        var result = KeyVaultReferenceResolverExtensions.ExtractSecretUri(value);
+
+        // Assert
+        Assert.Null(result);
+    }
+
+    #endregion
+
     #region ExtractSecretUri Tests
 
     [Fact]
@@ -404,7 +442,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     }
 
     [Fact]
-    public void AddKeyVaultReferenceResolver_ResolveFailure_ThrowOnFailureFalse_Continues()
+    public void AddKeyVaultReferenceResolver_ResolveFailure_ThrowOnFailureFalse_SetsValueToNull()
     {
         // Arrange
         var mockResolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
@@ -420,8 +458,9 @@ public class KeyVaultReferenceResolverExtensionsTests
         builder.AddKeyVaultReferenceResolver(mockResolver, options);
         var config = builder.Build();
 
-        // Assert - original value preserved (not resolved)
-        Assert.Equal(ValidKeyVaultReference, config["MissingSecret"]);
+        // Assert - fail closed. The literal reference must never survive as the value, or the
+        // application would use "@Microsoft.KeyVault(SecretUri=...)" itself as the credential.
+        Assert.Null(config["MissingSecret"]);
     }
 
     [Fact]
