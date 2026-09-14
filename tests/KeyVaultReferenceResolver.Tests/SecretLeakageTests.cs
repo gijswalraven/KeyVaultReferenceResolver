@@ -5,6 +5,7 @@ using System.Linq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Xunit;
+using KeyVaultReferenceResolver.Testing;
 
 namespace KeyVaultReferenceResolver.Tests;
 
@@ -34,7 +35,7 @@ public class SecretLeakageTests
     {
         // Arrange
         var logger = new CapturingLogger();
-        var resolver = new MockSecretResolver().AddSecret(SecretUri, SecretValueSentinel);
+        var resolver = new FakeSecretResolver().AddSecret(SecretUri, SecretValueSentinel);
 
         var builder = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
@@ -60,7 +61,7 @@ public class SecretLeakageTests
     {
         // Arrange - an empty resolver that throws, so every failure path runs
         var logger = new CapturingLogger();
-        var resolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
+        var resolver = new FakeSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
 
         var builder = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
@@ -86,7 +87,7 @@ public class SecretLeakageTests
     {
         // Arrange
         var logger = new CapturingLogger();
-        var resolver = new MockSecretResolver().AddSecret(SecretUri, SecretValueSentinel);
+        var resolver = new FakeSecretResolver().AddSecret(SecretUri, SecretValueSentinel);
 
         // Act - resolve twice so the cache-hit path is exercised
         for (var i = 0; i < 2; i++)

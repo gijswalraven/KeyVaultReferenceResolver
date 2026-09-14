@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Xunit;
+using KeyVaultReferenceResolver.Testing;
 
 namespace KeyVaultReferenceResolver.HashiCorp.Tests
 {
@@ -108,8 +109,8 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             builder.Build().AssertNoUnresolvedVaultReferences();
         }
 
-        private static MockSecretResolver Resolver() =>
-            new MockSecretResolver().AddSecret(Reference, "p@ssw0rd");
+        private static FakeSecretResolver Resolver() =>
+            new FakeSecretResolver().AddSecret(Reference, "p@ssw0rd");
 
         private sealed class RecordingLogger : ILogger
         {

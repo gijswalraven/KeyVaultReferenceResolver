@@ -25,8 +25,16 @@ namespace KeyVaultReferenceResolver
     /// <para>
     /// Hidden from IntelliSense to reduce the chance of it being reached for by accident.
     /// </para>
+    /// <para>
+    /// Deprecated. Hiding it from IntelliSense never stopped a dependency-injection registration,
+    /// and no amount of documentation makes a type that can hand an application empty passwords
+    /// safe to ship inside the library. Use <c>KeyVaultReferenceResolver.Testing.FakeSecretResolver</c>,
+    /// which is identical but lives in a test-only assembly. This type is removed in 2.0.
+    /// </para>
     /// </remarks>
     [EditorBrowsable(EditorBrowsableState.Never)]
+    [Obsolete("Use KeyVaultReferenceResolver.Testing.FakeSecretResolver from the TestSupport project instead. " +
+              "A test double that returns empty secrets should not ship inside the library; this type is removed in 2.0.")]
     public class MockSecretResolver : ISecretResolver
     {
         private readonly ConcurrentDictionary<string, string> _secrets;

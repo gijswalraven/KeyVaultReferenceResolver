@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
+using KeyVaultReferenceResolver.Testing;
 
 namespace KeyVaultReferenceResolver.Tests;
 
@@ -281,7 +282,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_WithSecretResolver_ResolvesSecrets()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver()
+        var mockResolver = new FakeSecretResolver()
             .AddSecret(TestSecretUri, TestSecretValue);
 
         var builder = new ConfigurationBuilder()
@@ -303,7 +304,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     {
         // Arrange
         IConfigurationBuilder? builder = null;
-        var mockResolver = new MockSecretResolver();
+        var mockResolver = new FakeSecretResolver();
 
         // Act
         Action act = () => builder!.AddKeyVaultReferenceResolver(mockResolver);
@@ -331,7 +332,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_ConfigWithKeyVaultRef_ResolvesValue()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver()
+        var mockResolver = new FakeSecretResolver()
             .AddSecret(TestSecretUri, TestSecretValue);
 
         var builder = new ConfigurationBuilder()
@@ -359,7 +360,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var secretValue1 = "value1";
         var secretValue2 = "value2";
 
-        var mockResolver = new MockSecretResolver()
+        var mockResolver = new FakeSecretResolver()
             .AddSecret(secretUri1, secretValue1)
             .AddSecret(secretUri2, secretValue2);
 
@@ -383,7 +384,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_ConfigWithNoRefs_NoChanges()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver();
+        var mockResolver = new FakeSecretResolver();
 
         var builder = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -405,7 +406,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_ConfigWithEmptyValue_SkipsEntry()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver();
+        var mockResolver = new FakeSecretResolver();
 
         var builder = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -425,7 +426,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_ConfigWithNullValue_SkipsEntry()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver();
+        var mockResolver = new FakeSecretResolver();
 
         var builder = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -445,7 +446,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_ResolveFailure_ThrowOnFailureFalse_SetsValueToNull()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
+        var mockResolver = new FakeSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
         var options = new KeyVaultReferenceResolverOptions { ThrowOnResolveFailure = false };
 
         var builder = new ConfigurationBuilder()
@@ -467,7 +468,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_ResolveFailure_ThrowOnFailureTrue_Throws()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
+        var mockResolver = new FakeSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
         var options = new KeyVaultReferenceResolverOptions { ThrowOnResolveFailure = true };
 
         var builder = new ConfigurationBuilder()
@@ -554,7 +555,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_WithNullOptions_UsesDefaults()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver()
+        var mockResolver = new FakeSecretResolver()
             .AddSecret(TestSecretUri, TestSecretValue);
 
         var builder = new ConfigurationBuilder()
@@ -575,7 +576,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_WithLogger_LogsResolution()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver()
+        var mockResolver = new FakeSecretResolver()
             .AddSecret(TestSecretUri, TestSecretValue);
         var mockLogger = new Mock<ILogger>();
 
@@ -602,7 +603,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_VaultNameFormat_ResolvesSecrets()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver()
+        var mockResolver = new FakeSecretResolver()
             .AddSecret(TestSecretUri, TestSecretValue);
 
         var builder = new ConfigurationBuilder()
@@ -623,7 +624,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_VaultNameFormatWithVersion_ResolvesSecrets()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver()
+        var mockResolver = new FakeSecretResolver()
             .AddSecret(TestSecretUriWithVersion, TestSecretValue);
 
         var builder = new ConfigurationBuilder()
@@ -649,7 +650,7 @@ public class KeyVaultReferenceResolverExtensionsTests
         var secretValue1 = "value1";
         var secretValue2 = "value2";
 
-        var mockResolver = new MockSecretResolver()
+        var mockResolver = new FakeSecretResolver()
             .AddSecret(secretUri1, secretValue1)
             .AddSecret(secretUri2, secretValue2);
 
@@ -675,7 +676,7 @@ public class KeyVaultReferenceResolverExtensionsTests
     public void AddKeyVaultReferenceResolver_VaultNameFormat_ResolveFailure_ThrowOnFailureTrue_Throws()
     {
         // Arrange
-        var mockResolver = new MockSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
+        var mockResolver = new FakeSecretResolver(new Dictionary<string, string>(), throwOnMissing: true);
         var options = new KeyVaultReferenceResolverOptions { ThrowOnResolveFailure = true };
 
         var builder = new ConfigurationBuilder()

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 using Xunit;
+using KeyVaultReferenceResolver.Testing;
 
 namespace KeyVaultReferenceResolver.Tests;
 
@@ -22,7 +23,7 @@ public class EmbeddedReferenceTests
 
     private static IConfigurationRoot Resolve(
         Dictionary<string, string?> settings,
-        MockSecretResolver resolver,
+        FakeSecretResolver resolver,
         KeyVaultReferenceResolverOptions? options = null)
     {
         var builder = new ConfigurationBuilder().AddInMemoryCollection(settings);
@@ -34,7 +35,7 @@ public class EmbeddedReferenceTests
     public void ReferenceEmbeddedInLiteralText_PreservesSurroundingText()
     {
         // Arrange
-        var resolver = new MockSecretResolver().AddSecret(PasswordUri, "p@ssw0rd");
+        var resolver = new FakeSecretResolver().AddSecret(PasswordUri, "p@ssw0rd");
 
         // Act
         var config = Resolve(
@@ -54,7 +55,7 @@ public class EmbeddedReferenceTests
     public void TwoReferencesInOneValue_ResolvesBoth()
     {
         // Arrange
-        var resolver = new MockSecretResolver()
+        var resolver = new FakeSecretResolver()
             .AddSecret(UserUri, "sa")
             .AddSecret(PasswordUri, "p@ssw0rd");
 
@@ -74,7 +75,7 @@ public class EmbeddedReferenceTests
     public void SameReferenceTwiceInOneValue_ResolvesBothOccurrences()
     {
         // Arrange
-        var resolver = new MockSecretResolver().AddSecret(PasswordUri, "p@ssw0rd");
+        var resolver = new FakeSecretResolver().AddSecret(PasswordUri, "p@ssw0rd");
 
         // Act
         var config = Resolve(
@@ -89,7 +90,7 @@ public class EmbeddedReferenceTests
     public void WholeValueIsAReference_StillResolvesToJustTheSecret()
     {
         // Arrange
-        var resolver = new MockSecretResolver().AddSecret(PasswordUri, "p@ssw0rd");
+        var resolver = new FakeSecretResolver().AddSecret(PasswordUri, "p@ssw0rd");
 
         // Act
         var config = Resolve(
@@ -104,7 +105,7 @@ public class EmbeddedReferenceTests
     public void OneOfTwoReferencesFails_WholeValueIsNull()
     {
         // Arrange - only the user secret exists
-        var resolver = new MockSecretResolver(
+        var resolver = new FakeSecretResolver(
             new Dictionary<string, string> { [UserUri] = "sa" },
             throwOnMissing: true);
         var options = new KeyVaultReferenceResolverOptions { ThrowOnResolveFailure = false };
@@ -127,7 +128,7 @@ public class EmbeddedReferenceTests
     public void MixedFormatsInOneValue_ResolvesBoth()
     {
         // Arrange
-        var resolver = new MockSecretResolver()
+        var resolver = new FakeSecretResolver()
             .AddSecret(UserUri, "sa")
             .AddSecret(PasswordUri, "p@ssw0rd");
 
@@ -149,7 +150,7 @@ public class EmbeddedReferenceTests
     {
         // Arrange - Azure Government
         const string govUri = "https://myvault.vault.usgovcloudapi.net/secrets/db-password";
-        var resolver = new MockSecretResolver().AddSecret(govUri, "p@ssw0rd");
+        var resolver = new FakeSecretResolver().AddSecret(govUri, "p@ssw0rd");
         var options = new KeyVaultReferenceResolverOptions
         {
             VaultDnsSuffix = "vault.usgovcloudapi.net",
@@ -174,7 +175,7 @@ public class EmbeddedReferenceTests
     {
         // Arrange
         const string govUri = "https://myvault.vault.azure.cn/secrets/db-password";
-        var resolver = new MockSecretResolver().AddSecret(govUri, "p@ssw0rd");
+        var resolver = new FakeSecretResolver().AddSecret(govUri, "p@ssw0rd");
         var options = new KeyVaultReferenceResolverOptions { VaultDnsSuffix = ".vault.azure.cn" };
 
         // Act
@@ -194,7 +195,7 @@ public class EmbeddedReferenceTests
     public void SharedSecretAcrossKeys_IsResolvedForEachKey()
     {
         // Arrange
-        var resolver = new MockSecretResolver().AddSecret(PasswordUri, "p@ssw0rd");
+        var resolver = new FakeSecretResolver().AddSecret(PasswordUri, "p@ssw0rd");
 
         // Act - the same URI referenced from two keys is fetched once but applied to both
         var config = Resolve(

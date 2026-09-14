@@ -1,3 +1,7 @@
+// MockSecretResolver is deprecated in favour of KeyVaultReferenceResolver.Testing.FakeSecretResolver,
+// but it still ships until 2.0, so it still needs coverage.
+#pragma warning disable CS0618 // Type or member is obsolete
+
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -239,3 +243,5 @@ public class MockSecretResolverTests
         Assert.False(resolver.ContainsSecret(TestSecretUri1));
     }
 }
+
+#pragma warning restore CS0618

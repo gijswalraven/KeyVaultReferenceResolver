@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\KeyVaultReferenceResolver.TestSupport\KeyVaultReferenceResolver.TestSupport.csproj" />
     <ProjectReference Include="..\..\src\KeyVaultReferenceResolver.HashiCorp\KeyVaultReferenceResolver.HashiCorp.csproj" />
   </ItemGroup>
 

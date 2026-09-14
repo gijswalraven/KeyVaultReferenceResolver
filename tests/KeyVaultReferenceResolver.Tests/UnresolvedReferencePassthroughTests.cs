@@ -5,6 +5,7 @@ using System.Linq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Xunit;
+using KeyVaultReferenceResolver.Testing;
 
 namespace KeyVaultReferenceResolver.Tests;
 
@@ -148,7 +149,7 @@ public class UnresolvedReferencePassthroughTests
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
 
         builder.AddKeyVaultReferenceResolver(
-            new MockSecretResolver(),
+            new FakeSecretResolver(),
             new KeyVaultReferenceResolverOptions { ThrowOnResolveFailure = false });
 
         var configuration = builder.Build();
@@ -157,7 +158,7 @@ public class UnresolvedReferencePassthroughTests
         Assert.Empty(configuration.FindUnresolvedReferences());
     }
 
-    private static MockSecretResolver Resolver() => new MockSecretResolver().AddSecret(Uri, "p@ssw0rd");
+    private static FakeSecretResolver Resolver() => new FakeSecretResolver().AddSecret(Uri, "p@ssw0rd");
 
     private sealed class RecordingLogger : ILogger
     {
