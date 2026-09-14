@@ -145,6 +145,52 @@ public class EmbeddedReferenceTests
     }
 
     [Fact]
+    public void VaultNameFormat_UsesConfiguredDnsSuffix()
+    {
+        // Arrange - Azure Government
+        const string govUri = "https://myvault.vault.usgovcloudapi.net/secrets/db-password";
+        var resolver = new MockSecretResolver().AddSecret(govUri, "p@ssw0rd");
+        var options = new KeyVaultReferenceResolverOptions
+        {
+            VaultDnsSuffix = "vault.usgovcloudapi.net",
+            AllowedVaultHostSuffixes = { ".vault.usgovcloudapi.net" }
+        };
+
+        // Act
+        var config = Resolve(
+            new Dictionary<string, string?>
+            {
+                ["Password"] = "@Microsoft.KeyVault(VaultName=myvault;SecretName=db-password)"
+            },
+            resolver,
+            options);
+
+        // Assert
+        Assert.Equal("p@ssw0rd", config["Password"]);
+    }
+
+    [Fact]
+    public void VaultNameFormat_LeadingDotInSuffixIsTolerated()
+    {
+        // Arrange
+        const string govUri = "https://myvault.vault.azure.cn/secrets/db-password";
+        var resolver = new MockSecretResolver().AddSecret(govUri, "p@ssw0rd");
+        var options = new KeyVaultReferenceResolverOptions { VaultDnsSuffix = ".vault.azure.cn" };
+
+        // Act
+        var config = Resolve(
+            new Dictionary<string, string?>
+            {
+                ["Password"] = "@Microsoft.KeyVault(VaultName=myvault;SecretName=db-password)"
+            },
+            resolver,
+            options);
+
+        // Assert - no double dot in the constructed host
+        Assert.Equal("p@ssw0rd", config["Password"]);
+    }
+
+    [Fact]
     public void SharedSecretAcrossKeys_IsResolvedForEachKey()
     {
         // Arrange
