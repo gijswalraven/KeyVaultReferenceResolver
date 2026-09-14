@@ -14,7 +14,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
     /// <summary>
     /// Implementation of <see cref="ISecretResolver"/> that uses HashiCorp Vault.
     /// </summary>
-    public class HashiCorpVaultSecretResolver : ISecretResolver
+    public class HashiCorpVaultSecretResolver : ISecretResolver, IDisposable
     {
         // Regex timeout to prevent ReDoS attacks
         private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
@@ -34,7 +34,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
         private readonly HashiCorpVaultResolverOptions _options;
         private readonly ILogger _logger;
         private readonly ConcurrentDictionary<string, IVaultClient> _vaultClients = new ConcurrentDictionary<string, IVaultClient>();
-        private readonly ConcurrentDictionary<string, string> _secretCache = new ConcurrentDictionary<string, string>();
+        private readonly ConcurrentDictionary<string, CacheEntry> _secretCache = new ConcurrentDictionary<string, CacheEntry>();
+        private bool _disposed;
 
         /// <summary>
         /// Creates a new instance of <see cref="HashiCorpVaultSecretResolver"/>.
@@ -46,20 +47,40 @@ namespace KeyVaultReferenceResolver.HashiCorp
             ILogger? logger = null)
         {
             _options = options ?? new HashiCorpVaultResolverOptions();
-            _logger = logger ?? NullLogger<HashiCorpVaultSecretResolver>.Instance;
+            _options.Validate();
+            _logger = logger ?? NullLogger.Instance;
         }
 
         /// <inheritdoc />
-        public async Task<string> ResolveSecretAsync(string secretUri, CancellationToken cancellationToken = default)
+        public Task<string> ResolveSecretAsync(string secretUri, CancellationToken cancellationToken = default)
+        {
+            return ResolveSecretAsync(secretUri, forceRefresh: false, cancellationToken);
+        }
+
+        /// <summary>
+        /// Resolves a secret, optionally bypassing the cache and fetching a fresh value from Vault.
+        /// </summary>
+        /// <param name="secretUri">The vault reference.</param>
+        /// <param name="forceRefresh">
+        /// When true, ignores any cached value, fetches from Vault and replaces the cache entry.
+        /// Use this when the application has evidence that the cached secret is stale, such as a
+        /// downstream login failing with an authentication error.
+        /// </param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The secret value.</returns>
+        public async Task<string> ResolveSecretAsync(string secretUri, bool forceRefresh, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(secretUri))
                 throw new ArgumentException("Secret URI cannot be null or empty.", nameof(secretUri));
 
             // Check cache first
-            if (_options.EnableCaching && _secretCache.TryGetValue(secretUri, out var cachedValue))
+            if (!forceRefresh &&
+                _options.EnableCaching &&
+                _secretCache.TryGetValue(secretUri, out var cached) &&
+                !cached.IsExpired)
             {
                 _logger.LogDebug("Returning cached secret for: {SecretUri}", MaskSecretUri(secretUri));
-                return cachedValue;
+                return cached.Value;
             }
 
             var (vaultAddress, secretPath, secretKey) = ParseSecretUri(secretUri);
@@ -67,7 +88,8 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
             using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                cts.CancelAfter(_options.Timeout);
+                if (_options.Timeout != System.Threading.Timeout.InfiniteTimeSpan)
+                    cts.CancelAfter(_options.Timeout);
 
                 try
                 {
@@ -79,16 +101,18 @@ namespace KeyVaultReferenceResolver.HashiCorp
                     // Cache the resolved secret
                     if (_options.EnableCaching)
                     {
-                        _secretCache[secretUri] = secretValue;
+                        _secretCache[secretUri] = new CacheEntry(secretValue, _options.CacheTtl);
                     }
 
                     _logger.LogInformation("Successfully resolved secret: {SecretKey} from {SecretPath}",
                         secretKey, MaskPath(secretPath));
                     return secretValue;
                 }
-                catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
                 {
-                    throw new TimeoutException($"Timeout resolving secret from {MaskSecretUri(secretUri)}");
+                    // Either the per-secret budget elapsed, or the Vault HTTP client hit
+                    // VaultServiceTimeout (which surfaces as a TaskCanceledException).
+                    throw new TimeoutException($"Timeout resolving secret from {MaskSecretUri(secretUri)}", ex);
                 }
             }
         }
@@ -96,7 +120,65 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// <inheritdoc />
         public string ResolveSecret(string secretUri)
         {
-            return ResolveSecretAsync(secretUri).GetAwaiter().GetResult();
+            return ResolveSecretAsync(secretUri, forceRefresh: false).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Resolves a secret synchronously, optionally bypassing the cache.
+        /// </summary>
+        /// <param name="secretUri">The vault reference.</param>
+        /// <param name="forceRefresh">When true, ignores any cached value and fetches from Vault.</param>
+        /// <returns>The secret value.</returns>
+        public string ResolveSecret(string secretUri, bool forceRefresh)
+        {
+            return ResolveSecretAsync(secretUri, forceRefresh).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Removes cached secrets so that the next resolution goes back to Vault.
+        /// </summary>
+        /// <param name="secretUri">The reference to evict, or null to clear the whole cache.</param>
+        /// <remarks>
+        /// This affects secrets resolved through this instance. Values already written into
+        /// <see cref="Microsoft.Extensions.Configuration.IConfiguration"/> during startup are not
+        /// re-read and keep their original values until the application restarts.
+        /// </remarks>
+        public void InvalidateCache(string? secretUri = null)
+        {
+            if (secretUri == null)
+            {
+                _secretCache.Clear();
+                return;
+            }
+
+            _secretCache.TryRemove(secretUri, out _);
+        }
+
+        /// <summary>
+        /// Clears the cached secret values and Vault clients held by this resolver.
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Releases the resources held by this resolver.
+        /// </summary>
+        /// <param name="disposing">True when called from <see cref="Dispose()"/>.</param>
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+                return;
+
+            if (disposing)
+            {
+                _secretCache.Clear();
+                _vaultClients.Clear();
+            }
+
+            _disposed = true;
         }
 
         /// <summary>
@@ -124,7 +206,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
             try
             {
-                return ParseSecretUri(value);
+                return ParseSecretUri(value!);
             }
             catch
             {
@@ -242,26 +324,78 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
         private IVaultClient GetOrCreateClient(string vaultAddress)
         {
-            // Use the provided address or fall back to options
-            var effectiveAddress = !string.IsNullOrWhiteSpace(vaultAddress)
-                ? vaultAddress
-                : _options.GetEffectiveVaultAddress();
-
-            // Normalize the address to avoid duplicate clients for same vault
-            effectiveAddress = NormalizeVaultAddress(effectiveAddress);
+            var effectiveAddress = NormalizeVaultAddress(ResolveTrustedAddress(vaultAddress));
 
             return _vaultClients.GetOrAdd(effectiveAddress, address =>
-        {
-            var authMethod = _options.GetEffectiveAuthMethod();
-            var settings = new VaultClientSettings(address, authMethod.GetAuthMethodInfo());
-
-            if (!string.IsNullOrWhiteSpace(_options.Namespace))
             {
-                settings.Namespace = _options.Namespace;
+                var authMethod = _options.GetEffectiveAuthMethod();
+                var settings = new VaultClientSettings(address, authMethod.GetAuthMethodInfo());
+
+                // VaultSharp does not observe a CancellationToken, so this is the only timeout
+                // that actually bounds a Vault call.
+                if (_options.Timeout != System.Threading.Timeout.InfiniteTimeSpan)
+                {
+                    settings.VaultServiceTimeout = _options.Timeout;
+                }
+
+                if (!string.IsNullOrWhiteSpace(_options.Namespace))
+                {
+                    settings.Namespace = _options.Namespace;
+                }
+
+                return new VaultClient(settings);
+            });
+        }
+
+        /// <summary>
+        /// Decides which Vault address to contact, refusing an address supplied by a configuration
+        /// reference unless it is explicitly trusted.
+        /// </summary>
+        /// <remarks>
+        /// The address in a reference comes from the configuration value itself. Any source that can
+        /// influence configuration could otherwise point it at an attacker-controlled host and have
+        /// the resolver's ambient Vault credential sent there.
+        /// </remarks>
+        private string ResolveTrustedAddress(string vaultAddress)
+        {
+            // No address in the reference: use the configured one.
+            if (string.IsNullOrWhiteSpace(vaultAddress))
+                return _options.GetEffectiveVaultAddress();
+
+            _options.EnsureTransportAllowed(vaultAddress);
+
+            // A configured address pins the resolver: a reference may only name that same vault.
+            if (!string.IsNullOrWhiteSpace(_options.VaultAddress))
+            {
+                if (AddressesMatch(vaultAddress, _options.VaultAddress!))
+                    return vaultAddress;
+
+                throw new InvalidOperationException(
+                    $"Vault address '{vaultAddress}' in a configuration reference does not match the configured " +
+                    $"{nameof(HashiCorpVaultResolverOptions.VaultAddress)}. Refusing to authenticate against an unexpected vault.");
             }
 
-            return new VaultClient(settings);
-        });
+            var allowed = _options.AllowedVaultAddresses;
+            if (allowed == null || allowed.Count == 0)
+                return vaultAddress;
+
+            foreach (var candidate in allowed)
+            {
+                if (!string.IsNullOrWhiteSpace(candidate) && AddressesMatch(vaultAddress, candidate))
+                    return vaultAddress;
+            }
+
+            throw new InvalidOperationException(
+                $"Vault address '{vaultAddress}' in a configuration reference is not listed in " +
+                $"{nameof(HashiCorpVaultResolverOptions.AllowedVaultAddresses)}.");
+        }
+
+        private static bool AddressesMatch(string left, string right)
+        {
+            return string.Equals(
+                NormalizeVaultAddress(left),
+                NormalizeVaultAddress(right),
+                StringComparison.Ordinal);
         }
 
         private static string NormalizeVaultAddress(string address)
@@ -269,11 +403,23 @@ namespace KeyVaultReferenceResolver.HashiCorp
             if (string.IsNullOrWhiteSpace(address))
                 return address;
 
-            // Ensure lowercase for consistent cache keys
-            address = address.ToLowerInvariant();
-
             // Remove trailing slash
             address = address.TrimEnd('/');
+
+            // Lowercase only the scheme and host; a path prefix on a Vault behind a gateway
+            // (for example https://gw.example.com/Vault) is case-sensitive.
+            if (Uri.TryCreate(address, UriKind.Absolute, out var uri))
+            {
+                var builder = new UriBuilder(uri)
+                {
+                    Scheme = uri.Scheme.ToLowerInvariant(),
+                    Host = uri.Host.ToLowerInvariant()
+                };
+
+                return builder.Uri.GetComponents(
+                    UriComponents.SchemeAndServer | UriComponents.Path,
+                    UriFormat.UriEscaped).TrimEnd('/');
+            }
 
             return address;
         }
@@ -311,6 +457,23 @@ namespace KeyVaultReferenceResolver.HashiCorp
                 return parts[0] + "/***";
             }
             return "***";
+        }
+
+        private readonly struct CacheEntry
+        {
+            private readonly DateTimeOffset _expiresAt;
+
+            public CacheEntry(string value, TimeSpan ttl)
+            {
+                Value = value;
+                _expiresAt = ttl == System.Threading.Timeout.InfiniteTimeSpan
+                    ? DateTimeOffset.MaxValue
+                    : DateTimeOffset.UtcNow.Add(ttl);
+            }
+
+            public string Value { get; }
+
+            public bool IsExpired => DateTimeOffset.UtcNow >= _expiresAt;
         }
     }
 }
