@@ -42,9 +42,16 @@ namespace KeyVaultReferenceResolver.HashiCorp
         public string MountPath { get; set; } = "secret";
 
         /// <summary>
-        /// Gets or sets the KV secrets engine version.
-        /// If null, auto-detects. Valid values: 1 or 2.
+        /// Gets or sets the KV secrets engine version. Valid values: 1 or 2.
+        /// When null, a read is attempted as KV v2 and retried as KV v1 if the mount answers
+        /// that the v2 path shape does not exist.
         /// </summary>
+        /// <remarks>
+        /// Detecting the engine version properly would mean reading <c>sys/mounts</c>, which a
+        /// least-privileged application token has no access to - so the version is probed with
+        /// the permissions the application already holds. Set this explicitly to skip the extra
+        /// round trip on a v1 mount.
+        /// </remarks>
         public int? KvVersion { get; set; }
 
         /// <summary>
