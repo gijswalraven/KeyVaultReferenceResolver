@@ -10,6 +10,25 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+Repository and CI only.
+
+### Changed
+
+- `actions/upload-artifact` and `actions/download-artifact` 4 → 5. The v4 pins
+  target Node 20, which the runners now force onto Node 24 and will stop
+  supporting. Both move together: an upload and a download of different majors
+  are not guaranteed to interoperate.
+- The release workflow hands over two named artifacts with explicit download
+  paths instead of one artifact with several path patterns. A multi-path upload
+  reconstructs directory structure relative to the least common ancestor of its
+  paths, and the publish job was silently relying on that rule to find
+  `./artifacts` and `./sbom`.
+- CI gained a job that downloads the packages it just uploaded and checks they
+  arrive where the release expects. The release workflow's artifact hand-off runs
+  only during a release, so this is the one part of it a pull request can
+  exercise.
+
+
 ## [2.0.0]
 
 The tightenings 1.4.0 introduced as opt-in are now the default, and the test
