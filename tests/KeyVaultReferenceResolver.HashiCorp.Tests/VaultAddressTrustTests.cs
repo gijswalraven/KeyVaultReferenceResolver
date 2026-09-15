@@ -61,7 +61,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             using var env = new VaultAddressEnvironment(Configured);
             var logger = new RecordingLogger();
-            var resolver = Create(new HashiCorpVaultResolverOptions(), logger);
+            var resolver = Create(new HashiCorpVaultResolverOptions { StrictVaultAddressValidation = false }, logger);
 
             Assert.Equal(Attacker, resolver.ResolveTrustedAddress(Attacker));
 
@@ -96,7 +96,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             using var env = new VaultAddressEnvironment(null);
             var logger = new RecordingLogger();
-            var resolver = Create(new HashiCorpVaultResolverOptions(), logger);
+            var resolver = Create(new HashiCorpVaultResolverOptions { StrictVaultAddressValidation = false }, logger);
 
             Assert.Equal(Attacker, resolver.ResolveTrustedAddress(Attacker));
 
@@ -153,7 +153,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         public void PlaintextReference_WithoutOptIn_Throws()
         {
             using var env = new VaultAddressEnvironment("http://vault.example.com");
-            var resolver = Create(new HashiCorpVaultResolverOptions());
+            var resolver = Create(new HashiCorpVaultResolverOptions { AllowInsecureTransport = false });
 
             var ex = Assert.Throws<InvalidOperationException>(
                 () => resolver.ResolveTrustedAddress("http://vault.example.com"));

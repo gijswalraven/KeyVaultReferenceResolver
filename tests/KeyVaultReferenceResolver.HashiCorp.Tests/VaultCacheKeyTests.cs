@@ -96,6 +96,9 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         {
             var options = new HashiCorpVaultResolverOptions
             {
+                // Pinned explicitly: StrictVaultAddressValidation is on by default from 2.0, so a
+                // resolver with nothing to validate the reference address against refuses to run.
+                VaultAddress = Address,
                 AuthMethod = new Authentication.TokenAuthMethod("test-token")
             };
 
