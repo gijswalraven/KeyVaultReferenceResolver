@@ -48,14 +48,21 @@ long-term support branch.
 
 | Package | Version | Supported |
 | --- | --- | --- |
-| KeyVaultReferenceResolver | 1.3.x | Yes |
-| KeyVaultReferenceResolver | 1.2.x and earlier | No - upgrade to 1.3.x |
-| KeyVaultReferenceResolver.HashiCorp | 1.3.x | Yes |
-| KeyVaultReferenceResolver.HashiCorp | 1.1.x | No - upgrade to 1.3.x |
+| KeyVaultReferenceResolver | 2.0.x | Yes |
+| KeyVaultReferenceResolver | 1.4.x | Security fixes only |
+| KeyVaultReferenceResolver | 1.3.x and earlier | No - upgrade |
+| KeyVaultReferenceResolver.HashiCorp | 2.0.x | Yes |
+| KeyVaultReferenceResolver.HashiCorp | 1.4.x | Security fixes only |
+| KeyVaultReferenceResolver.HashiCorp | 1.3.x and earlier | No - upgrade |
 
-Every fix listed in the 1.3.0 release notes is a security fix. Versions below 1.3.0
-contain all of them unpatched, including the fail-open resolution path and the missing
-vault host validation, so upgrading is the remediation.
+Every fix listed in the 1.3.0 and 1.4.0 release notes is a security fix, and versions
+below them carry those unpatched - the fail-open resolution path and missing vault host
+validation below 1.3.0, and the unpinned vault address and undetected reference
+passthrough below 1.4.0. Upgrading is the remediation.
+
+1.4.x is listed as supported because 2.0.0 is a breaking release: it turns three
+behaviours that 1.4.0 introduced as opt-in into defaults, so upgrading is not always a
+same-day change. Security fixes are backported to 1.4.x; nothing else is.
 
 ## Scope
 

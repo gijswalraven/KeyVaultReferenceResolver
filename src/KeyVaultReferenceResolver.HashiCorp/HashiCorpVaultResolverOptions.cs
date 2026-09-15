@@ -143,8 +143,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
 
         /// <summary>
         /// Gets or sets whether an address in a configuration reference that cannot be matched
-        /// against a trusted address is rejected rather than used. Default is <c>false</c>, which
-        /// logs a warning and contacts the address anyway.
+        /// against a trusted address is rejected rather than used. Default is <c>true</c>.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -157,13 +156,15 @@ namespace KeyVaultReferenceResolver.HashiCorp
         /// to validate against.
         /// </para>
         /// <para>
-        /// It defaults to <c>false</c> so that enabling it is a deliberate step rather than a
-        /// behaviour change on upgrade. The warning logged in the permissive case
-        /// (<see cref="HashiCorpLogEvents.VaultAddressUnverified"/>) is there to find affected
-        /// configurations before the default flips to <c>true</c> in the next major version.
+        /// This defaulted to <c>false</c> in 1.4.x, where the permissive case logged
+        /// <see cref="HashiCorpLogEvents.VaultAddressUnverified"/> at <c>Warning</c> so affected
+        /// configurations could be found ahead of this change. Setting it back to <c>false</c>
+        /// restores that behaviour, but the only reason to do so is a deployment that genuinely
+        /// resolves against a vault it cannot name in advance - which is worth questioning, since
+        /// it means a configuration value decides where the credential goes.
         /// </para>
         /// </remarks>
-        public bool StrictVaultAddressValidation { get; set; }
+        public bool StrictVaultAddressValidation { get; set; } = true;
 
         /// <summary>
         /// Gets or sets the Vault namespace (Enterprise feature).

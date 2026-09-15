@@ -34,7 +34,9 @@ The library follows a simple provider pattern:
 
 - **ISecretResolver** - Interface for secret resolution, enables DI and testing
 - **KeyVaultSecretResolver** - Default implementation using Azure SDK (`Azure.Identity`, `Azure.Security.KeyVault.Secrets`)
-- **MockSecretResolver** - Test double for unit testing without Azure dependencies
+- **FakeSecretResolver** - Test double for unit testing without Azure dependencies. Lives in
+  `tests/KeyVaultReferenceResolver.TestSupport`, which is never packed; it is deliberately not
+  part of either shipped package.
 - **KeyVaultReferenceResolverExtensions** - `IConfigurationBuilder` extension methods; contains the regex pattern matching and orchestrates resolution
 - **KeyVaultReferenceResolverOptions** - Configuration: `ThrowOnResolveFailure`, `Timeout`, `EnableCaching`, `Credential`
 
@@ -64,8 +66,9 @@ When adding tests:
   FluentAssertions is deliberately not referenced.
 - Note `Assert.Throws<T>` matches the exception type *exactly* — use
   `Assert.ThrowsAny<T>` when a derived type is acceptable.
-- Use `MockSecretResolver` for unit tests to avoid Azure dependencies
-- `MockSecretResolver` supports fluent API: `.AddSecret(uri, value)` chaining
+- Use `FakeSecretResolver` (from `KeyVaultReferenceResolver.TestSupport`) for unit tests to
+  avoid Azure dependencies
+- `FakeSecretResolver` supports fluent API: `.AddSecret(uri, value)` chaining
 - Set `throwOnMissing: false` for silent mode (returns empty string instead of throwing)
 - Pass `TestContext.Current.CancellationToken` to async calls that accept one
   (enforced by analyzer xUnit1051).

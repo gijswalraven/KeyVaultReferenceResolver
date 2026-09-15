@@ -118,7 +118,11 @@ namespace KeyVaultReferenceResolver.HashiCorp
             }
 
             if (distinctReferences.Count == 0)
+            {
+                // Registered even with nothing in it - see the Azure-side extension for why.
+                builder.Add(new ResolvedVaultSecretsSource(new Dictionary<string, string?>(), logger));
                 return builder;
+            }
 
             var secrets = RunWithoutSynchronizationContext(
                 () => ResolveReferences(distinctReferences, secretResolver, options, logger, referencingKeys));

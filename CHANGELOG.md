@@ -10,6 +10,73 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+## [2.0.0]
+
+The tightenings 1.4.0 introduced as opt-in are now the default, and the test
+double is gone from the shipped packages. That is the whole release: no new
+capability, three defaults and one deletion.
+
+> **Read Migrating from 1.4.x before upgrading.** Two of these changes can stop
+> an application that currently starts.
+
+### Breaking
+
+- **`StrictVaultAddressValidation` defaults to `true`.** An address inside a
+  `@HashiCorp.Vault(...)` reference must now match `VaultAddress`, an entry in
+  `AllowedVaultAddresses`, or `VAULT_ADDR`. If none of the three is configured,
+  resolution fails rather than contacting a host named by a configuration value.
+  In 1.4.x this logged `VaultAddressUnverified` (2103) at `Warning` and proceeded.
+- **A later configuration source carrying a reference fails the build.**
+  `builder.Build()` throws `KeyVaultReferenceResolutionException` naming the
+  offending keys. In 1.4.x this logged `ResolverNotLastSource` (1005 / 2006) at
+  `Error` and let the literal reference string through to be used as a
+  credential.
+- **`MockSecretResolver` is removed.** It shipped inside the production package,
+  where `[EditorBrowsable(Never)]` did not stop a dependency-injection
+  registration, and with `throwOnMissing: false` it started applications with
+  empty passwords. Implement `ISecretResolver` yourself — it has two members, and
+  the README shows a stub.
+
+### Fixed
+
+- **A reference arriving only in a later source is now detected.** With no
+  references present at registration the resolver returned early and registered
+  nothing, so there was nothing left to notice a reference that appeared in a
+  source added afterwards. It registers unconditionally now.
+
+### Changed
+
+- A later source with no references is no longer reported at all. Registering
+  `AddCommandLine` or `AddEnvironmentVariables` last is common and correct, and
+  overriding a resolved secret with a literal value is legitimate; only an
+  unresolvable reference is an error. `ResolverNotLastSource` is now emitted only
+  when the later sources cannot be inspected.
+
+### Migrating from 1.4.x
+
+**If you use the HashiCorp package.** Set one of `VaultAddress`,
+`AllowedVaultAddresses`, or `VAULT_ADDR`. If you were relying on none of them,
+1.4.x has been logging `VaultAddressUnverified` at `Warning` on every resolution
+— search for it before upgrading and you will find every affected deployment.
+Setting `StrictVaultAddressValidation = false` restores the old behaviour, but
+that means a configuration value decides where your Vault credential is sent.
+
+**If you register configuration sources after the resolver.** Move
+`AddKeyVaultReferenceResolver` / `AddHashiCorpVaultResolver` last. You only need
+to act if a later source actually contains a reference; a later source holding
+ordinary values is unaffected and still overrides as before. 1.4.x logged
+`ResolverNotLastSource` at `Error` for any later source, so that event over-reports
+relative to what 2.0 rejects.
+
+**If you use `MockSecretResolver` in tests.** Replace it with your own
+`ISecretResolver`. The README has a stub that is a direct substitute; have it
+throw on an unknown secret rather than returning an empty string.
+
+Nothing else changed. No public signature outside those three areas was touched,
+and the resolution behaviour for a correctly ordered, correctly pinned
+configuration is identical to 1.4.0.
+
+
 Repository and CI only. No change to either shipped package, so there is nothing
 here that affects a consumer.
 
@@ -135,12 +202,7 @@ behind a new opt-in, and becomes the default in 2.0.
 
 ### Planned for 2.0
 
-These become the default, and are opt-in until then:
-
-- `StrictVaultAddressValidation` on.
-- A later configuration source, and any unresolved reference, fail startup
-  rather than logging at `Error`.
-- `MockSecretResolver` removed.
+Delivered in 2.0.0; see that entry.
 
 ## [1.3.0]
 
@@ -369,7 +431,8 @@ resolution path in both packages.
 - Initial release: resolve `@Microsoft.KeyVault(SecretUri=...)` references in
   `Microsoft.Extensions.Configuration` anywhere, not just Azure App Service.
 
-[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.1.0...v1.2.0

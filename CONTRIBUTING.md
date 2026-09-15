@@ -67,7 +67,7 @@ parsing, caching, logging or exception content also needs:
 xUnit v3, no FluentAssertions — plain `Assert`. Name tests
 `Method_Scenario_ExpectedResult`, so a failure in CI output reads as a sentence.
 
-Use `MockSecretResolver` rather than reaching for a live vault. It is test-only and
+Use `FakeSecretResolver` rather than reaching for a live vault. It is test-only and
 marked as such; never register it in application code.
 
 If `dotnet test` reports "Zero tests ran" on your machine, run the test executables
