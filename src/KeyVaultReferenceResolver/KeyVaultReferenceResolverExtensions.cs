@@ -181,7 +181,14 @@ namespace KeyVaultReferenceResolver
             }
 
             if (distinctUris.Count == 0)
+            {
+                // Registered even with nothing in it. This source is what inspects the sources
+                // added after it, and a configuration whose only reference arrives in a later
+                // source is precisely the case worth catching - skipping registration here would
+                // leave it undetected.
+                builder.Add(new ResolvedSecretsSource(new Dictionary<string, string?>(), logger));
                 return builder;
+            }
 
             var secrets = RunWithoutSynchronizationContext(
                 () => ResolveSecrets(distinctUris, secretResolver, options, logger, referencingKeys));

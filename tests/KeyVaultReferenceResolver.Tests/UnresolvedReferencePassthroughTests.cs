@@ -1,11 +1,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
+using KeyVaultReferenceResolver.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Xunit;
-using KeyVaultReferenceResolver.Testing;
 
 namespace KeyVaultReferenceResolver.Tests;
 
@@ -16,7 +15,8 @@ namespace KeyVaultReferenceResolver.Tests;
 /// Resolution is a single sweep performed while the configuration is built. Anything registered
 /// after the resolver wins over the values it produced and is itself never resolved, so the
 /// application reads the literal <c>@Microsoft.KeyVault(...)</c> string and uses it as a
-/// credential - the one outcome the fail-closed behaviour elsewhere exists to prevent.
+/// credential. In 1.4.x this was logged at Error; from 2.0 it fails the build, because a
+/// credential that is silently a placeholder fails somewhere far away from its cause.
 /// </remarks>
 public class UnresolvedReferencePassthroughTests
 {
@@ -24,39 +24,7 @@ public class UnresolvedReferencePassthroughTests
     private const string Reference = "@Microsoft.KeyVault(SecretUri=https://myvault.vault.azure.net/secrets/db-password)";
 
     [Fact]
-    public void SourceRegisteredAfterTheResolver_IsReported()
-    {
-        var logger = new RecordingLogger();
-
-        var builder = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
-
-        builder.AddKeyVaultReferenceResolver(Resolver(), options: null, logger: logger);
-
-        // The footgun: a source added here overrides the resolved secret and is never resolved.
-        builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
-        builder.Build();
-
-        var error = Assert.Single(logger.Entries, e => e.EventId == LogEvents.ResolverNotLastSource);
-        Assert.Equal(LogLevel.Error, error.Level);
-    }
-
-    [Fact]
-    public void ResolverRegisteredLast_IsNotReported()
-    {
-        var logger = new RecordingLogger();
-
-        var builder = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
-
-        builder.AddKeyVaultReferenceResolver(Resolver(), options: null, logger: logger);
-        builder.Build();
-
-        Assert.DoesNotContain(logger.Entries, e => e.EventId == LogEvents.ResolverNotLastSource);
-    }
-
-    [Fact]
-    public void FindUnresolvedReferences_ReportsAKeyALaterSourceReintroduced()
+    public void LaterSourceCarryingAReference_FailsTheBuild()
     {
         var builder = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
@@ -64,21 +32,68 @@ public class UnresolvedReferencePassthroughTests
         builder.AddKeyVaultReferenceResolver(Resolver());
         builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
 
-        var configuration = builder.Build();
+        var ex = Assert.Throws<KeyVaultReferenceResolutionException>(() => builder.Build());
 
-        // Proof that the literal reference is what the application would read.
-        Assert.Equal(Reference, configuration["Db:Password"]);
-        Assert.Equal("Db:Password", Assert.Single(configuration.FindUnresolvedReferences()));
+        Assert.Contains("Db:Password", ex.Message, StringComparison.Ordinal);
+
+        // The key is named; the reference, which identifies the vault and secret, is not.
+        Assert.DoesNotContain("myvault.vault.azure.net", ex.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The case that used to slip through entirely: with no references present at registration the
+    /// resolver returned early and registered nothing, so nothing was left to notice the reference
+    /// that arrived afterwards.
+    /// </summary>
     [Fact]
-    public void FindUnresolvedReferences_ReportsAKeyOnlyALaterSourceHas()
+    public void LaterSourceIsTheOnlySourceWithAReference_StillFailsTheBuild()
     {
         var builder = new ConfigurationBuilder();
         builder.AddKeyVaultReferenceResolver(Resolver());
         builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Added:Later"] = Reference });
 
-        Assert.Equal("Added:Later", Assert.Single(builder.Build().FindUnresolvedReferences()));
+        var ex = Assert.Throws<KeyVaultReferenceResolutionException>(() => builder.Build());
+        Assert.Contains("Added:Later", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Only a later <i>reference</i> is an error. Registering AddCommandLine or
+    /// AddEnvironmentVariables last is both common and correct, and overriding a resolved secret
+    /// with a literal value is legitimate for a test or a local run.
+    /// </summary>
+    [Fact]
+    public void LaterSourceWithoutAReference_IsAllowedAndStillOverrides()
+    {
+        var builder = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
+
+        builder.AddKeyVaultReferenceResolver(Resolver());
+        builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = "local-override" });
+
+        Assert.Equal("local-override", builder.Build()["Db:Password"]);
+    }
+
+    [Fact]
+    public void ResolverRegisteredLast_Resolves()
+    {
+        var builder = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
+
+        builder.AddKeyVaultReferenceResolver(Resolver());
+
+        Assert.Equal("p@ssw0rd", builder.Build()["Db:Password"]);
+    }
+
+    [Fact]
+    public void FindUnresolvedReferences_ReportsAReferenceLeftInAConfiguration()
+    {
+        // Built without the resolver, so nothing had the chance to fail the build. This is the
+        // check for a configuration assembled somewhere the resolver was never registered.
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference })
+            .Build();
+
+        Assert.Equal("Db:Password", Assert.Single(configuration.FindUnresolvedReferences()));
     }
 
     [Fact]
@@ -110,19 +125,16 @@ public class UnresolvedReferencePassthroughTests
     [Fact]
     public void AssertNoUnresolvedReferences_ThrowsNamingTheKey()
     {
-        var builder = new ConfigurationBuilder();
-        builder.AddKeyVaultReferenceResolver(Resolver());
-        builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Added:Later"] = Reference });
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Added:Later"] = Reference })
+            .Build();
 
-        var configuration = builder.Build();
         var logger = new RecordingLogger();
 
         var ex = Assert.Throws<KeyVaultReferenceResolutionException>(
             () => configuration.AssertNoUnresolvedReferences(logger));
 
         Assert.Contains("Added:Later", ex.Message, StringComparison.Ordinal);
-
-        // The key is named, but the reference itself - which identifies the vault and secret - is not.
         Assert.DoesNotContain("myvault.vault.azure.net", ex.Message, StringComparison.Ordinal);
         Assert.Contains(logger.Entries, e => e.EventId == LogEvents.UnresolvedReference);
     }

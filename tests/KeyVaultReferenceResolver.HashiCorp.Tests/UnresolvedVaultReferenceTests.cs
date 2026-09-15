@@ -21,37 +21,7 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             "@HashiCorp.Vault(VaultAddress=https://vault.example.com;SecretPath=secret/data/myapp;SecretKey=password)";
 
         [Fact]
-        public void SourceRegisteredAfterTheResolver_IsReported()
-        {
-            var logger = new RecordingLogger();
-
-            var builder = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
-
-            builder.AddHashiCorpVaultResolver(Resolver(), options: null, logger: logger);
-            builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
-            builder.Build();
-
-            var error = Assert.Single(logger.Entries, e => e.EventId == HashiCorpLogEvents.ResolverNotLastSource);
-            Assert.Equal(LogLevel.Error, error.Level);
-        }
-
-        [Fact]
-        public void ResolverRegisteredLast_IsNotReported()
-        {
-            var logger = new RecordingLogger();
-
-            var builder = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
-
-            builder.AddHashiCorpVaultResolver(Resolver(), options: null, logger: logger);
-            builder.Build();
-
-            Assert.DoesNotContain(logger.Entries, e => e.EventId == HashiCorpLogEvents.ResolverNotLastSource);
-        }
-
-        [Fact]
-        public void FindUnresolvedVaultReferences_ReportsAKeyALaterSourceReintroduced()
+        public void LaterSourceCarryingAReference_FailsTheBuild()
         {
             var builder = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
@@ -59,10 +29,41 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
             builder.AddHashiCorpVaultResolver(Resolver());
             builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
 
-            var configuration = builder.Build();
+            var ex = Assert.Throws<HashiCorpVaultReferenceResolutionException>(() => builder.Build());
 
-            Assert.Equal(Reference, configuration["Db:Password"]);
-            Assert.Equal("Db:Password", Assert.Single(configuration.FindUnresolvedVaultReferences()));
+            Assert.Contains("Db:Password", ex.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("secret/data/myapp", ex.Message, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The case that used to slip through entirely: with no references at registration the
+        /// resolver returned early and registered nothing to notice what arrived later.
+        /// </summary>
+        [Fact]
+        public void LaterSourceIsTheOnlySourceWithAReference_StillFailsTheBuild()
+        {
+            var builder = new ConfigurationBuilder();
+            builder.AddHashiCorpVaultResolver(Resolver());
+            builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Added:Later"] = Reference });
+
+            var ex = Assert.Throws<HashiCorpVaultReferenceResolutionException>(() => builder.Build());
+            Assert.Contains("Added:Later", ex.Message, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Only a later reference is an error; a later source overriding a resolved secret with a
+        /// literal value is legitimate.
+        /// </summary>
+        [Fact]
+        public void LaterSourceWithoutAReference_IsAllowedAndStillOverrides()
+        {
+            var builder = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = Reference });
+
+            builder.AddHashiCorpVaultResolver(Resolver());
+            builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Db:Password"] = "local-override" });
+
+            Assert.Equal("local-override", builder.Build()["Db:Password"]);
         }
 
         [Fact]
@@ -81,12 +82,13 @@ namespace KeyVaultReferenceResolver.HashiCorp.Tests
         [Fact]
         public void AssertNoUnresolvedVaultReferences_ThrowsNamingTheKey()
         {
-            var builder = new ConfigurationBuilder();
-            builder.AddHashiCorpVaultResolver(Resolver());
-            builder.AddInMemoryCollection(new Dictionary<string, string?> { ["Added:Later"] = Reference });
+            // Built without the resolver: this is the check for a configuration assembled
+            // somewhere the resolver was never registered, so nothing failed the build.
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Added:Later"] = Reference })
+                .Build();
 
             var logger = new RecordingLogger();
-            var configuration = builder.Build();
 
             var ex = Assert.Throws<HashiCorpVaultReferenceResolutionException>(
                 () => configuration.AssertNoUnresolvedVaultReferences(logger));
