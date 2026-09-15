@@ -1,0 +1,15 @@
+# Line endings are normalised to LF in the repository and checked out native, so a
+# Windows clone still gets CRLF in the working tree.
+#
+# Without this, whether a file is stored as LF or CRLF depends on how it happened to be
+# committed. The repository had five such stragglers, and editing any of them rendered as
+# a whole-file rewrite that buried the actual change - one commit in the 1.4.0 series had
+# to be split just to keep a 23-line diff readable.
+* text=auto
+
+# Executed by tooling that will not accept CRLF, whatever the platform.
+*.sh text eol=lf
+
+# Windows-only scripts, which cmd.exe requires to be CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
