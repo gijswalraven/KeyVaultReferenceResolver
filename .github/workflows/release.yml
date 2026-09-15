@@ -98,9 +98,23 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
 
-    # A protected environment gates the only job that can publish. Configure it with
-    # required reviewers and a tag-pattern deployment branch rule, so creating a release
-    # is not by itself sufficient to push a package to nuget.org.
+    # A protected environment gates the only job that can publish. As configured:
+    #
+    #   required reviewers      gijswalraven
+    #   deployment tag rule     v*
+    #
+    # The tag rule matters because a release deployment's ref is the tag, not a branch
+    # (GET .../deployments?environment=nuget-production shows ref: v1.4.0), so without it
+    # the environment could be targeted from any branch. Creating a release is therefore
+    # not by itself sufficient to push a package to nuget.org.
+    #
+    # Read the live configuration back with:
+    #   gh api repos/gijswalraven/KeyVaultReferenceResolver/environments/nuget-production
+    #   gh api repos/gijswalraven/KeyVaultReferenceResolver/environments/nuget-production/deployment-branch-policies
+    #
+    # prevent_self_review is off, and there is one reviewer who is also the person who
+    # cuts the release. The gate forces a deliberate second action; it is not separation
+    # of duties, and should not be described as such.
     environment: nuget-production
 
     permissions:
