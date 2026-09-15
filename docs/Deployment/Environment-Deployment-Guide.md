@@ -229,7 +229,7 @@ builder.Configuration.AddKeyVaultReferenceResolver(options =>
 
 `AllowDeveloperCredentials` re-enables the Azure CLI, Azure Developer CLI, Visual Studio and Azure PowerShell credentials. `az login` first.
 
-Two things to get right. **Point developers at a dev vault, not production** — a developer identity is usually far more privileged than a workload's, and granting it production secret access defeats the separation the vault provides. And **keep `ThrowOnResolveFailure` on**. Turning it off to work offline produces `null` configuration values and a confusing cascade of downstream errors; use `MockSecretResolver` or a local-only configuration source instead. See [Local-Setup-And-Testing.md](../Development/Local-Setup-And-Testing.md).
+Two things to get right. **Point developers at a dev vault, not production** — a developer identity is usually far more privileged than a workload's, and granting it production secret access defeats the separation the vault provides. And **keep `ThrowOnResolveFailure` on**. Turning it off to work offline produces `null` configuration values and a confusing cascade of downstream errors; use `FakeSecretResolver` or a local-only configuration source instead. See [Local-Setup-And-Testing.md](../Development/Local-Setup-And-Testing.md).
 
 The conditional means the same code is safe in production: `IsDevelopment()` is false there, and the developer credentials stay excluded.
 
@@ -291,7 +291,7 @@ builder.Configuration.AddKeyVaultReferenceResolver(options =>
 
 Use a federated credential (OIDC / workload identity federation) so no long-lived secret is stored in the pipeline. GitHub Actions and Azure DevOps both support it, and this repository's own release workflow uses the same mechanism for NuGet publishing — see [Release-And-Publishing.md](../Development/Release-And-Publishing.md).
 
-Better still, do not resolve real secrets in CI at all. Use `MockSecretResolver` for unit and integration tests, and reserve vault access for deployment-time smoke tests against a dedicated test vault.
+Better still, do not resolve real secrets in CI at all. Use `FakeSecretResolver` for unit and integration tests, and reserve vault access for deployment-time smoke tests against a dedicated test vault.
 
 ## Recommended settings by environment
 
@@ -304,7 +304,7 @@ Better still, do not resolve real secrets in CI at all. Use `MockSecretResolver`
 | Container outside Azure | Service principal / OIDC | leave `ExcludeEnvironmentCredential = false`, or mount the secret as a file |
 | Local dev (Azure) | Azure CLI | `AllowDeveloperCredentials = IsDevelopment()` |
 | Local dev (Vault) | `VAULT_TOKEN` | `AllowInsecureTransport = IsDevelopment()` |
-| CI/CD | Federated credential | prefer `MockSecretResolver`; never a long-lived secret |
+| CI/CD | Federated credential | prefer `FakeSecretResolver`; never a long-lived secret |
 | Sovereign cloud | as above | `AuthorityHost` **and** `VaultDnsSuffix` together |
 
 ## Design Decisions and Trade-offs

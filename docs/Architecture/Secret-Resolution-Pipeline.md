@@ -190,7 +190,7 @@ Anyone changing one of these two classes should check whether the other needs th
 ## Integration Points
 
 - **`IConfigurationBuilder`** — both the input (sources to scan) and the output (`AddInMemoryCollection`). The pipeline mutates the builder and returns it for chaining.
-- **`ISecretResolver`** — the only outbound dependency of the pipeline itself. Everything vault-specific is behind it, which is why `MockSecretResolver` can exercise the whole pipeline with no network.
+- **`ISecretResolver`** — the only outbound dependency of the pipeline itself. Everything vault-specific is behind it, which is why `FakeSecretResolver` can exercise the whole pipeline with no network.
 - **`ILogger`** — four event IDs per package: `SecretResolved` (Debug), `ResolutionFailed` (Error), `ResolutionSummary` (Information), plus the resolver-level `SecretRead` (Information). Defaults to `NullLogger.Instance`.
 - **Options validation** — `options.Validate()` is called at the top of the pipeline, before any work, so a bad `MaxConcurrency` or negative timeout fails fast with an `ArgumentOutOfRangeException` naming the property.
 

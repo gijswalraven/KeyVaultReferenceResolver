@@ -20,7 +20,7 @@ graph LR
     D --> E["ISecretResolver"]
     E --> F["KeyVaultSecretResolver<br/>Azure.Identity + SecretClient"]
     E --> G["HashiCorpVaultSecretResolver<br/>VaultSharp"]
-    E --> H["MockSecretResolver<br/>tests only"]
+    E --> H["FakeSecretResolver<br/>test project only"]
     F --> I["Azure Key Vault"]
     G --> J["HashiCorp Vault"]
     C --> K["AddInMemoryCollection<br/>resolved values"]
@@ -81,9 +81,11 @@ The Azure implementation, in [KeyVaultSecretResolver.cs](../../src/KeyVaultRefer
 
 The Vault implementation, in [HashiCorpVaultSecretResolver.cs](../../src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultSecretResolver.cs). Structurally parallel to the Azure resolver, but with extra work that Vault's API shape forces: splitting a reference path into mount and path, probing whether a mount is KV v1 or v2, re-authenticating once when a cached login token has expired, and deciding whether an address carried inside a configuration value may be contacted at all. Detail in [HashiCorp-Vault-Provider.md](../Features/HashiCorp-Vault-Provider.md).
 
-### MockSecretResolver
+### FakeSecretResolver
 
-A dictionary-backed test double in the *main* package, in [MockSecretResolver.cs](../../src/KeyVaultReferenceResolver/MockSecretResolver.cs). It is marked `[EditorBrowsable(EditorBrowsableState.Never)]` and carries prominent warnings, because shipping a test double in the production package means a DI mistake can wire it into a real application with no compile-time signal.
+A dictionary-backed test double in [FakeSecretResolver.cs](../../tests/KeyVaultReferenceResolver.TestSupport/FakeSecretResolver.cs), in a test-only project that is never packed.
+
+Its predecessor, `FakeSecretResolver`, shipped inside the main package until 2.0. It was marked `[EditorBrowsable(EditorBrowsableState.Never)]` and carried prominent warnings, but neither stops a dependency-injection registration — and with `throwOnMissing: false` an application wired to it starts with empty passwords rather than failing. Documentation is not a control, so the type was moved out of the shipped assembly instead.
 
 ### Options and LogEvents
 

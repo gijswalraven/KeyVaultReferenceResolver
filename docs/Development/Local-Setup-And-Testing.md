@@ -53,7 +53,7 @@ The two `Directory.Build.props` files are worth noticing. MSBuild only auto-impo
 
 `rollForward: latestMajor` means a newer SDK is accepted, so the pin is a floor rather than an exact match. The `test.runner` key is what makes `dotnet test` drive the xunit.v3 assemblies through Microsoft.Testing.Platform instead of VSTest.
 
-No Azure subscription or Vault server is needed. The whole suite runs offline against `MockSecretResolver` and Moq.
+No Azure subscription or Vault server is needed. The whole suite runs offline against `FakeSecretResolver` and Moq.
 
 ## How It Works
 
@@ -126,7 +126,7 @@ tests/
   KeyVaultReferenceResolver.HashiCorp.Tests/  net8.0, Exe
 ```
 
-One test project per library, each referencing only its own. The HashiCorp test project gets the core package transitively through the project reference, which is why it can use `MockSecretResolver`.
+One test project per library, each referencing only its own. Both test projects also reference `KeyVaultReferenceResolver.TestSupport`, which is where the shared test doubles live.
 
 ### Test project setup
 
@@ -153,7 +153,7 @@ tests/KeyVaultReferenceResolver.Tests/bin/Release/net8.0/KeyVaultReferenceResolv
 
 That is the documented fallback when `dotnet test` reports *"Zero tests ran"* — a local toolchain quirk rather than a broken suite.
 
-Moq is present but used sparingly; most tests use `MockSecretResolver` or a hand-written counting double.
+Moq is present but used sparingly; most tests use `FakeSecretResolver` or a hand-written counting double.
 
 ### Test suites
 
@@ -166,7 +166,6 @@ Moq is present but used sparingly; most tests use `MockSecretResolver` or a hand
 | Core | `SecretLeakageTests` | **no secret reaches a log or an exception** |
 | Core | `KeyVaultReferenceResolutionExceptionTests` | constructor masking |
 | Core | `KeyVaultReferenceResolverOptionsTests` | `Validate()` |
-| Core | `MockSecretResolverTests` | the test double itself |
 | HashiCorp | `HashiCorpVaultReferenceExtensionsTests` | the Vault pipeline |
 | HashiCorp | `HashiCorpVaultSecretResolverTests` | reference parsing, mount splitting, address trust |
 | HashiCorp | `SecretPathValidationTests` | `..` traversal and illegal characters |
@@ -218,14 +217,14 @@ public class MyEnvironmentTests
 
 Symptom of forgetting: intermittent failures that pass in isolation.
 
-**Prefer `MockSecretResolver` over a live vault.** The whole suite runs offline; keep it that way.
+**Prefer `FakeSecretResolver` over a live vault.** The whole suite runs offline; keep it that way.
 
-### MockSecretResolver
+### FakeSecretResolver
 
-The test double in the *main* package, at [MockSecretResolver.cs](../../src/KeyVaultReferenceResolver/MockSecretResolver.cs).
+The test double, at [FakeSecretResolver.cs](../../tests/KeyVaultReferenceResolver.TestSupport/FakeSecretResolver.cs). It lives in `KeyVaultReferenceResolver.TestSupport`, a project both test projects reference and that is never packed — so it cannot reach a consumer's application.
 
 ```csharp
-var resolver = new MockSecretResolver()
+var resolver = new FakeSecretResolver()
     .AddSecret("https://myvault.vault.azure.net/secrets/db-password", "s3cret")
     .AddSecret("https://myvault.vault.azure.net/secrets/api-key", "key123");
 
@@ -242,8 +241,8 @@ Assert.Equal("s3cret", config["Db:Password"]);
 
 | Member | Behaviour |
 | --- | --- |
-| `MockSecretResolver()` | empty, `throwOnMissing: true` |
-| `MockSecretResolver(Dictionary<string,string>, bool throwOnMissing = true)` | seeded |
+| `FakeSecretResolver()` | empty, `throwOnMissing: true` |
+| `FakeSecretResolver(Dictionary<string,string>, bool throwOnMissing = true)` | seeded |
 | `AddSecret(uri, value)` | returns `this` for chaining |
 | `AddSecrets(Dictionary)` | returns `this` |
 | `Clear()`, `Count`, `ContainsSecret(uri)` | inspection |
@@ -258,7 +257,7 @@ Three containment measures make it harder to use by accident: `[EditorBrowsable(
 
 ### Working offline
 
-Do not disable `ThrowOnResolveFailure` to work without vault access. That produces `null` configuration values and a confusing cascade of downstream errors. Either register a `MockSecretResolver`, or use a local-only configuration source that supplies literal values instead of references:
+Do not disable `ThrowOnResolveFailure` to work without vault access. That produces `null` configuration values and a confusing cascade of downstream errors. Either register a `FakeSecretResolver`, or use a local-only configuration source that supplies literal values instead of references:
 
 ```csharp
 if (builder.Environment.IsDevelopment() && offline)
@@ -298,7 +297,7 @@ The single-collection definition that serialises environment-mutating tests.
 
 The sentinel-based guard against a secret reaching a log or exception. Extend it when you add a record or an exception that carries a reference.
 
-### MockSecretResolver
+### FakeSecretResolver
 
 The offline test double. Fluent, thread-safe, deliberately hard to reach for by accident.
 
@@ -328,7 +327,7 @@ The offline test double. Fluent, thread-safe, deliberately hard to reach for by 
 
 - **Microsoft.Testing.Platform** — the runner, selected via `global.json`. Test assemblies are self-executing.
 - **xunit.v3 4.0.1** — including analyzer xUnit1051, which requires a cancellation token on async calls that accept one.
-- **Moq 4.20.72** — present for interface mocking; most tests use `MockSecretResolver` or a counting double.
+- **Moq 4.20.72** — present for interface mocking; most tests use `FakeSecretResolver` or a counting double.
 - **Roslyn analyzers** — `latest-Recommended` via `EnableNETAnalyzers`.
 - **NuGet audit** — `NuGetAuditMode=all` covers transitive packages; CI adds a hard gate.
 - **SourceLink** — `Microsoft.SourceLink.GitHub` plus `.snupkg` symbol packages.
@@ -349,7 +348,7 @@ The offline test double. Fluent, thread-safe, deliberately hard to reach for by 
 - Extend `SecretLeakageTests` when adding a log record or exception that carries a reference.
 - Do not add a private feed to `NuGet.config`.
 - A security fix should come with a test demonstrating the *old* behaviour was exploitable; that is worth more than one asserting the new behaviour is correct.
-- Never register `MockSecretResolver` in application code. Guard any conditional registration with an environment check.
+- Never register `FakeSecretResolver` in application code. Guard any conditional registration with an environment check.
 
 ### Operational
 

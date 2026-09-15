@@ -136,7 +136,7 @@ That matters because this exception surfaces out of `IConfigurationBuilder.Build
 
 The HashiCorp exception masks for an additional reason. Its reference is taken verbatim from a configuration value, so a compound value — a connection string with an inline password next to an embedded reference — would otherwise be captured whole into a reflection-serialised public property.
 
-`MockSecretResolver` masks too, because its `KeyNotFoundException` becomes the `InnerException` of the resolution failure that gets logged, and an unmasked URI there would put the secret name into the log by the back door.
+`FakeSecretResolver` masks too, because its `KeyNotFoundException` becomes the `InnerException` of the resolution failure that gets logged, and an unmasked URI there would put the secret name into the log by the back door.
 
 ### Log level discipline
 
@@ -210,11 +210,13 @@ Both resolvers implement `IDisposable` and clear their secret and client caches:
 
 This is a mitigation, not a guarantee. A `string` in .NET is immutable and cannot be overwritten; the best available action is to make it unreachable so the GC can eventually reuse the memory. Secrets that have already been written into `IConfiguration` stay reachable for the process lifetime regardless.
 
-### MockSecretResolver containment
+### The test double is not in the package
 
-The test double ships in the production package, which is a known hazard. Three mitigations: `[EditorBrowsable(EditorBrowsableState.Never)]` keeps it out of IntelliSense, the XML docs open with **"Test use only. Never register this in an application that runs in production"**, and `throwOnMissing` defaults to `true`.
+Until 2.0 the test double shipped inside the production package as `FakeSecretResolver`, mitigated by `[EditorBrowsable(EditorBrowsableState.Never)]`, prominent XML docs, and `throwOnMissing` defaulting to `true`.
 
-That default is the substantive one. With `throwOnMissing: false` the mock returns an empty string for every unknown secret, so an application wired to it would start with empty passwords and API keys rather than failing — the exact silent-degradation failure mode the rest of the library is built to prevent. Guard the registration with an environment check.
+Only the last of those was a control, and it was one flag away from failing: with `throwOnMissing: false` the double returns an empty string for every unknown secret, so an application wired to it starts with empty passwords and API keys rather than failing — the exact silent degradation the rest of the library exists to prevent. Hiding a type from IntelliSense does not stop a dependency-injection registration, and a warning in a doc comment is not a control at all.
+
+From 2.0 the type is gone from the shipped assembly. `FakeSecretResolver` lives in a test-only project that is never packed, so no consumer can reach it by accident. Consumers who need a stub implement `ISecretResolver` themselves; it has two members.
 
 ## Key Components
 

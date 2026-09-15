@@ -72,9 +72,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddKeyVaultReferenceResolver(options =>
 {
-    // Keep fail-fast on in every environment. For offline development, use
-    // MockSecretResolver or a local-only configuration source rather than
-    // disabling it — see Testing below.
+    // Keep fail-fast on in every environment. For offline development, use a stub
+    // ISecretResolver or a local-only configuration source rather than disabling
+    // it — see Testing below.
     options.AllowDeveloperCredentials = builder.Environment.IsDevelopment();
 });
 
@@ -266,11 +266,28 @@ reference in that source reaches your application as the literal
 `@Microsoft.KeyVault(...)` string and gets used as a credential. The same
 applies to a `reloadOnChange` source that gains a reference after startup.
 
-The library logs `ResolverNotLastSource` (event 1005) at `Error` when it detects
-a later source. To fail startup instead, check the built configuration:
+From 2.0 this **fails the build**: `builder.Build()` throws
+`KeyVaultReferenceResolutionException`, naming the offending keys but not the
+reference values. In 1.4.x it was logged at `Error` instead.
+
+What fails is a later source *carrying a reference*, not the mere existence of
+one. Registering `AddCommandLine()` or `AddEnvironmentVariables()` last is both
+common and correct, and overriding a resolved secret with a plain literal value
+— for a test, or a local run — keeps working:
 
 ```csharp
-var configuration = builder.Build();
+builder.AddKeyVaultReferenceResolver(...);
+builder.AddCommandLine(args);                    // fine
+builder.AddInMemoryCollection(new Dictionary<string, string?>
+{
+    ["Db:Password"] = "local-dev-password"       // fine, overrides the resolved secret
+});
+```
+
+For a configuration assembled somewhere the resolver was never registered, check
+it yourself:
+
+```csharp
 configuration.AssertNoUnresolvedReferences(logger); // throws, naming the keys
 
 // or, to inspect without throwing:
@@ -372,20 +389,37 @@ exceptions to a third-party sink, that is the text being forwarded.
 
 ## 🧪 Testing
 
-Use the built-in `MockSecretResolver` for unit tests:
+`ISecretResolver` is the seam. It has two members, so a stub is a few lines and needs no
+Azure dependency, no network and no package beyond the one you already reference:
+
+```csharp
+internal sealed class StubSecretResolver : ISecretResolver
+{
+    private readonly Dictionary<string, string> _secrets;
+
+    public StubSecretResolver(Dictionary<string, string> secrets) => _secrets = secrets;
+
+    public string ResolveSecret(string secretUri) =>
+        _secrets.TryGetValue(secretUri, out var value)
+            ? value
+            : throw new KeyNotFoundException($"No stub secret for {secretUri}");
+
+    public Task<string> ResolveSecretAsync(string secretUri, CancellationToken ct = default) =>
+        Task.FromResult(ResolveSecret(secretUri));
+}
+```
+
+Then pass it where the real resolver would go:
 
 ```csharp
 [Fact]
-public void Configuration_ResolvesSecrets_FromMock()
+public void Configuration_ResolvesReferences()
 {
-    // Arrange
-    var mockResolver = new MockSecretResolver()
-        .AddSecret(
-            "https://myvault.vault.azure.net/secrets/db-conn",
-            "Server=localhost;Database=TestDb")
-        .AddSecret(
-            "https://myvault.vault.azure.net/secrets/api-key",
-            "test-api-key-12345");
+    var resolver = new StubSecretResolver(new Dictionary<string, string>
+    {
+        ["https://myvault.vault.azure.net/secrets/db-conn"] = "Server=localhost;Database=TestDb",
+        ["https://myvault.vault.azure.net/secrets/api-key"] = "test-api-key-12345"
+    });
 
     var configuration = new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string?>
@@ -393,38 +427,19 @@ public void Configuration_ResolvesSecrets_FromMock()
             ["Database"] = "@Microsoft.KeyVault(SecretUri=https://myvault.vault.azure.net/secrets/db-conn)",
             ["ApiKey"] = "@Microsoft.KeyVault(SecretUri=https://myvault.vault.azure.net/secrets/api-key)"
         })
-        .AddKeyVaultReferenceResolver(mockResolver)
+        .AddKeyVaultReferenceResolver(resolver)
         .Build();
 
-    // Act & Assert
     Assert.Equal("Server=localhost;Database=TestDb", configuration["Database"]);
     Assert.Equal("test-api-key-12345", configuration["ApiKey"]);
 }
 ```
 
-### MockSecretResolver Features
-
-```csharp
-// Fluent API
-var mock = new MockSecretResolver()
-    .AddSecret("uri1", "value1")
-    .AddSecret("uri2", "value2");
-
-// Bulk add
-mock.AddSecrets(new Dictionary<string, string>
-{
-    ["uri3"] = "value3",
-    ["uri4"] = "value4"
-});
-
-// Silent mode (returns empty string instead of throwing)
-var silentMock = new MockSecretResolver(secrets, throwOnMissing: false);
-
-// Inspection
-bool exists = mock.ContainsSecret("uri1");
-int count = mock.Count;
-mock.Clear();
-```
+**Throw on an unknown secret rather than returning an empty string.** A stub that quietly
+returns `""` lets a test pass with an empty password, and the same stub wired into an
+application by mistake starts it with empty credentials instead of failing. That hazard is
+why the `MockSecretResolver` that shipped in 1.x was removed in 2.0 — see
+[the migration notes](CHANGELOG.md).
 
 ---
 
@@ -584,10 +599,23 @@ builder.AddHashiCorpVaultResolver(options =>
 ### Strict vault address validation
 
 A `@HashiCorp.Vault(VaultAddress=...)` reference carries its own address, and
-that address comes from configuration. Set `VaultAddress` in options to pin the
-resolver: a reference naming a different vault is then rejected rather than
-being sent your Vault credential. If you genuinely need several vaults, list
-them in `AllowedVaultAddresses`.
+that address comes from configuration — so without a pin, a configuration value
+decides which host receives your Vault credential.
+
+`StrictVaultAddressValidation` is **on by default from 2.0**. An address in a
+reference must match `VaultAddress`, an entry in `AllowedVaultAddresses`, or
+`VAULT_ADDR`; anything else is rejected before a client is built. If none of the
+three is set, resolution fails rather than contacting an unvalidated host.
+
+```csharp
+options.VaultAddress = "https://vault.example.com";           // the usual case
+options.AllowedVaultAddresses = { "https://vault-dr.example.com" };  // several vaults
+```
+
+Setting `StrictVaultAddressValidation = false` restores the 1.4.x behaviour, where
+a mismatch logged `VaultAddressUnverified` (event 2103) at `Warning` and was
+contacted anyway. The only reason to do that is a deployment that genuinely cannot
+name its vault in advance — which is worth questioning.
 
 ### Minimum Vault policy
 
@@ -646,7 +674,6 @@ When no explicit authentication method is configured, the resolver auto-detects 
 KeyVaultReferenceResolver/
 ├── ISecretResolver.cs                      # Interface for DI/testing
 ├── KeyVaultSecretResolver.cs               # Default Azure implementation
-├── MockSecretResolver.cs                   # Testing mock
 ├── KeyVaultReferenceResolverExtensions.cs  # IConfigurationBuilder extensions
 ├── KeyVaultReferenceResolverOptions.cs     # Configuration options
 └── KeyVaultReferenceResolutionException.cs # Custom exception

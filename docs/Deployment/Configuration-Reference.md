@@ -63,7 +63,7 @@ The override is unconditional, even against an explicit `true`, because a Key Va
 | --- | --- | --- | --- |
 | `ThrowOnResolveFailure` | `bool` | `true` | Throw the first `KeyVaultReferenceResolutionException` out of `Build()`. When `false`, the key is still set to `null` — the literal reference string is **never** left in place. |
 
-**Recommended: leave `true` in every environment.** For offline development use `MockSecretResolver` or a local-only configuration source rather than turning this off; see [Local-Setup-And-Testing.md](../Development/Local-Setup-And-Testing.md).
+**Recommended: leave `true` in every environment.** For offline development use `FakeSecretResolver` or a local-only configuration source rather than turning this off; see [Local-Setup-And-Testing.md](../Development/Local-Setup-And-Testing.md).
 
 ### Timeouts and concurrency
 
