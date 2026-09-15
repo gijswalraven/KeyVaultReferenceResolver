@@ -83,13 +83,24 @@ jobs:
             --exclude-dev \
             --set-version "$version"
 
-      - name: Upload build output
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      # Two named artifacts rather than one with several path patterns. A multi-path upload
+      # reconstructs directory structure relative to the least common ancestor of the paths,
+      # which is a rule the publish job would silently depend on - and the publish job runs
+      # only during a release, so a change in that rule would surface after the approval
+      # click. A name per artifact plus an explicit download path makes the layout on the
+      # other side something this workflow states rather than infers.
+      - name: Upload packages
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: release-artifacts
-          path: |
-            ./artifacts/*.nupkg
-            ./sbom/KeyVaultReferenceResolver-sbom.cdx.json
+          name: packages
+          path: ./artifacts/*.nupkg
+          if-no-files-found: error
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: sbom
+          path: ./sbom/KeyVaultReferenceResolver-sbom.cdx.json
           if-no-files-found: error
 
   # Signs and publishes. This job holds id-token: write and contents: write but never runs
@@ -128,10 +139,17 @@ jobs:
       attestations: write
 
     steps:
-      - name: Download build output
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download packages
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: release-artifacts
+          name: packages
+          path: ./artifacts
+
+      - name: Download SBOM
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: sbom
+          path: ./sbom
 
       # No checkout in this job, so the SDK is set up explicitly rather than relying on
       # whatever version the runner image happens to ship.
