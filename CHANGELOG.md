@@ -35,13 +35,9 @@ here that affects a consumer.
   dependency bump carried a permanently red check.
 - `.gitattributes` normalises line endings, and the last five CRLF files are
   renormalised. Editing one of them previously rendered as a whole-file rewrite.
-
-### Known gaps
-
-- `actions/attest-build-provenance` v4 is unverified. It appears only in
-  `release.yml`, which never runs on a pull request, and 1.4.0 was released on
-  the v2 pin. It runs before the NuGet push, so a break blocks a release rather
-  than publishing something unattested.
+- `actions/attest-build-provenance` v4 verified against both subject shapes the
+  release uses, by hand-dispatched workflow, since `release.yml` never runs on a
+  pull request. Attestations were produced for the packages and the SBOM.
 
 
 ## [1.4.0]
