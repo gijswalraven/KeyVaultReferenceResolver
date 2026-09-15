@@ -10,6 +10,40 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+Repository and CI only. No change to either shipped package, so there is nothing
+here that affects a consumer.
+
+### Security
+
+- **Restrict the release environment to release tags.** `nuget-production` had
+  required reviewers but no deployment branch policy, so the environment could be
+  targeted from any branch — the reviewer gate was the only thing between an
+  arbitrary branch and nuget.org. A tag rule (`v*`) now applies. Tag rather than
+  branch because a release deployment's ref is the tag, which the deployment
+  records confirm. The comment in `release.yml` had asserted this rule existed
+  since 1.3.0; it now records the configuration that is actually in place, with
+  the commands to read it back.
+
+### Changed
+
+- `github/codeql-action` 3.38.0 → 4.38.0 (`init`, `analyze`, `upload-sarif`
+  together — the halves cannot be bumped separately).
+- `actions/checkout` 4.4.0 → 7.0.1, `actions/setup-dotnet` 4.3.1 → 6.0.0,
+  `actions/attest-build-provenance` 2.4.0 → 4.2.2.
+- The Claude review is skipped on Dependabot pull requests. They run without
+  access to repository secrets, so the action could never authenticate and every
+  dependency bump carried a permanently red check.
+- `.gitattributes` normalises line endings, and the last five CRLF files are
+  renormalised. Editing one of them previously rendered as a whole-file rewrite.
+
+### Known gaps
+
+- `actions/attest-build-provenance` v4 is unverified. It appears only in
+  `release.yml`, which never runs on a pull request, and 1.4.0 was released on
+  the v2 pin. It runs before the NuGet push, so a break blocks a release rather
+  than publishing something unattested.
+
+
 ## [1.4.0]
 
 Security release. Follow-up to 1.3.0, from a second review of the same paths.
