@@ -10,6 +10,10 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+## [2.0.1]
+
+A single fix, plus the CI changes that were already pending. No API changes.
+
 ### Fixed
 
 - `AddKeyVaultReferenceResolver` and `AddHashiCorpVaultResolver` no longer throw
@@ -470,7 +474,8 @@ resolution path in both packages.
 - Initial release: resolve `@Microsoft.KeyVault(SecretUri=...)` references in
   `Microsoft.Extensions.Configuration` anywhere, not just Azure App Service.
 
-[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.2.0...v1.3.0
