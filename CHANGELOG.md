@@ -10,7 +10,27 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
-Repository and CI only.
+### Fixed
+
+- `AddKeyVaultReferenceResolver` and `AddHashiCorpVaultResolver` no longer throw
+  `ObjectDisposedException: 'ConfigurationManager'` when called on
+  `Host.CreateApplicationBuilder().Configuration` or
+  `WebApplication.CreateBuilder().Configuration` — which is to say, on the
+  default host builder of every .NET 6+ application. Both packages were
+  affected, and the failure needed nothing but the call itself:
+
+  ```csharp
+  var builder = Host.CreateApplicationBuilder(args);
+  builder.Configuration.AddKeyVaultReferenceResolver(); // threw
+  ```
+
+  To find which keys hold references, the resolver builds the configuration
+  once and disposes that temporary root, so a reloading file source does not
+  leak its `FileSystemWatcher`. `ConfigurationManager` is builder and root at
+  once and its `Build()` returns *itself*, so the dispose tore down the
+  caller's live configuration; the `Add` immediately afterwards was the first
+  thing to notice. The root is now disposed only when it is not the builder,
+  and the leak fix is unchanged for every other builder.
 
 ### Changed
 

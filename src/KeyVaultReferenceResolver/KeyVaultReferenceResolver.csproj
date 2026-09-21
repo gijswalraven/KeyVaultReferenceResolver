@@ -47,6 +47,11 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>KeyVaultReferenceResolver.TestSupport</_Parameter1>
     </AssemblyAttribute>
+    <!-- The HashiCorp package shares the ConfigurationManager disposal rule rather than
+         restating it; getting it wrong in one of the two is the failure mode to avoid. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>KeyVaultReferenceResolver.HashiCorp</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>
