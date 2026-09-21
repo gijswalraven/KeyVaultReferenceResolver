@@ -36,6 +36,14 @@ A single fix, plus the CI changes that were already pending. No API changes.
   thing to notice. The root is now disposed only when it is not the builder,
   and the leak fix is unchanged for every other builder.
 
+  **Affects 1.3.0, 1.4.0 and 2.0.0, in both packages.** `builder.Build()` has
+  been called since 1.0.0 and was harmless on its own; the bug arrived with the
+  dispose that 1.3.0 added to stop a reloading file source leaking a
+  `FileSystemWatcher`. The leak fix and this bug are the same change — it just
+  did not account for the one builder that hands back itself, which happens to
+  be the default everywhere. Those three versions are deprecated on nuget.org
+  and point here.
+
 ### Changed
 
 - `actions/upload-artifact` and `actions/download-artifact` 4 → 5. The v4 pins
