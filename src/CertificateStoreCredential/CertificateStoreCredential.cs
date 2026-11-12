@@ -45,67 +45,7 @@ namespace CertificateStoreCredentials
         }
 
         /// <summary>
-        /// Creates the credential the environment convention names, or <c>null</c> when the convention
-        /// does not apply.
-        /// </summary>
-        /// <returns>
-        /// <c>null</c> when <c>AZURE_TENANT_ID</c> or <c>AZURE_CLIENT_ID</c> is missing, when none of the
-        /// <c>CurrentUser\My</c> or <c>LocalMachine\My</c> certificates names the client ID in its subject or
-        /// friendly name, or when <c>AZURE_CLIENT_SECRET</c>, <c>AZURE_CLIENT_CERTIFICATE_PATH</c>,
-        /// <c>AZURE_FEDERATED_TOKEN_FILE</c>, <c>AZURE_USERNAME</c> or <c>AZURE_PASSWORD</c> is set. These are the rules
-        /// <c>AddKeyVaultReferenceResolver</c> applies.
-        /// </returns>
-        /// <exception cref="InvalidOperationException">
-        /// A certificate names the client ID but is unusable: expired, not yet valid, or without an
-        /// accessible private key. It is not treated as "convention does not apply", so a broken setup is
-        /// not mistaken for an unconfigured one.
-        /// </exception>
-        public static CertificateStoreCredential? TryCreateFromEnvironment()
-        {
-            return TryCreateFromEnvironment((ClientCertificateCredentialOptions?)null);
-        }
-
-        /// <summary>
-        /// The same as <see cref="TryCreateFromEnvironment()"/>, with options for the wrapped
-        /// <see cref="ClientCertificateCredential"/>.
-        /// </summary>
-        /// <param name="credentialOptions">
-        /// Authority host, additionally allowed tenants and retry behaviour, or <c>null</c> for the Azure
-        /// Identity defaults (which include the <c>AZURE_AUTHORITY_HOST</c> environment variable).
-        /// </param>
-        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/returns"/>
-        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/exception"/>
-        public static CertificateStoreCredential? TryCreateFromEnvironment(ClientCertificateCredentialOptions? credentialOptions)
-        {
-            return TryCreateFromEnvironment(credentialOptions, requiredTenantId: null);
-        }
-
-        /// <summary>
-        /// The same as <see cref="TryCreateFromEnvironment(ClientCertificateCredentialOptions)"/>, for a
-        /// caller that has already chosen a tenant.
-        /// </summary>
-        /// <param name="credentialOptions">
-        /// Authority host, additionally allowed tenants and retry behaviour, or <c>null</c> for the Azure
-        /// Identity defaults.
-        /// </param>
-        /// <param name="requiredTenantId">
-        /// When not <c>null</c> or blank, the convention applies only if <c>AZURE_TENANT_ID</c> equals it
-        /// (case-insensitively); otherwise the result is <c>null</c>.
-        /// </param>
-        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/returns"/>
-        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/exception"/>
-        public static CertificateStoreCredential? TryCreateFromEnvironment(
-            ClientCertificateCredentialOptions? credentialOptions,
-            string? requiredTenantId)
-        {
-            return TryCreateFromEnvironment(
-                Environment.GetEnvironmentVariable, CertificateStoreLoader.ReadStore, DateTimeOffset.UtcNow,
-                credentialOptions, requiredTenantId);
-        }
-
-        /// <summary>
-        /// Creates the credential for the certificate that <paramref name="options"/> names. Unlike
-        /// <see cref="TryCreateFromEnvironment()"/> the certificate is required.
+        /// Creates the credential for the certificate that <paramref name="options"/> names. The certificate is required.
         /// </summary>
         /// <param name="options">Identifies the service principal and the certificate.</param>
         /// <exception cref="ArgumentNullException"><paramref name="options"/> is <c>null</c>.</exception>
@@ -198,25 +138,6 @@ namespace CertificateStoreCredentials
 
         /// <summary>The loaded certificate, for tests that assert on ownership.</summary>
         internal X509Certificate2 Certificate => _certificate;
-
-        /// <summary>
-        /// Test seam: the convention with the environment and the stores supplied.
-        /// </summary>
-        internal static CertificateStoreCredential? TryCreateFromEnvironment(
-            Func<string, string?> getVariable,
-            Func<StoreLocation, X509Certificate2Collection> candidatesFor,
-            DateTimeOffset now,
-            ClientCertificateCredentialOptions? credentialOptions = null,
-            string? requiredTenantId = null)
-        {
-            // One read of the store: the search hands back the certificate it picked.
-            var found = CertificateStoreLoader.FindFromEnvironment(getVariable, candidatesFor, now, requiredTenantId);
-            if (found == null)
-                return null;
-
-            return CreateFromCertificate(
-                found.Settings, CertificateStoreLoader.LoadFound(found, now), credentialOptions);
-        }
 
         /// <summary>
         /// The one path that loads the certificate and builds the credential, behind every public

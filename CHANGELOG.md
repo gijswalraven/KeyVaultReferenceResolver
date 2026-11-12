@@ -10,6 +10,27 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+## [3.0.0]
+
+`KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` 3.0.0 (HashiCorp itself has no changes; it
+moves in lockstep), with `CertificateStoreCredential` 2.0.0. This is a major release because public API is removed.
+
+### Removed
+
+- **The `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` store-certificate convention.** Nothing in either package reads
+  those variables to pick a certificate any more, so an identity is never chosen by whatever happens to be in the
+  process environment. This removes `CertificateStoreCredential.TryCreateFromEnvironment` (all three overloads)
+  and the resolver's log events 1007 (`ClientCertificateFromEnvironment`) and 1008
+  (`ClientCertificateFromEnvironmentUnusable`); those IDs are retired and not reused.
+- **Migration:** where the convention was used, set `KeyVaultReferenceResolverOptions.ClientCertificate` instead
+  (or call `CertificateStoreCredential.Create` for other tokens). `new CertificateStoreCredentialOptions(tenantId,
+  clientId)` finds the certificate by client ID exactly as the convention did, valid-then-latest-expiry, so renewal
+  still needs no change; take the two IDs from your own configuration. **Upgrading without this change is silent:** a host that relied on the convention now uses the default
+  credential chain, with no warning, and may fail with an unrelated error or authenticate as another identity. An unusable certificate now always throws at startup,
+  since it is named explicitly, instead of logging a warning and falling back.
+- `Azure.Identity`'s own `AZURE_*` handling is unchanged: `ExcludeEnvironmentCredential` still controls its
+  `EnvironmentCredential`, and `AZURE_AUTHORITY_HOST` and `AZURE_ADDITIONALLY_ALLOWED_TENANTS` still apply.
+
 ## [2.1.0]
 
 `KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` 2.1.0, with the new
@@ -551,7 +572,8 @@ resolution path in both packages.
 - Initial release: resolve `@Microsoft.KeyVault(SecretUri=...)` references in
   `Microsoft.Extensions.Configuration` anywhere, not just Azure App Service.
 
-[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.1.0...v3.0.0
 [2.1.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.4.0...v2.0.0

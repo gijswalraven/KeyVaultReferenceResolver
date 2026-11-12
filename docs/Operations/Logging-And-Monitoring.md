@@ -108,13 +108,13 @@ The HashiCorp package currently calls `ILogger` extension methods directly with 
 | 1004 | `ResolutionSummary` | Information | `Resolved {Count} of {Total} configuration value(s) containing Key Vault reference(s)` | `Count`, `Total` |
 | 1005 | `ResolverNotLastSource` | Error | `{Count} configuration source(s) were registered after the Key Vault reference resolver. ...` | `Count` |
 | 1006 | `UnresolvedReference` | Error | `Configuration key '{ConfigKey}' still holds an unresolved Key Vault reference` | `ConfigKey` |
-| 1007 | `ClientCertificateFromEnvironment` | Information | `Authenticating with a store client certificate found for AZURE_CLIENT_ID` | none |
-| 1008 | `ClientCertificateFromEnvironmentUnusable` | Warning | `A store client certificate names AZURE_CLIENT_ID but cannot be used, so the default credential chain is used instead: {Reason}` | `Reason` |
 | 1101 | `SecretExpired` | Warning | `Secret from {VaultUri} expired at {ExpiresOn} and is being used anyway` | `VaultUri`, `ExpiresOn` |
 | 1102 | `SecretExpiringSoon` | Warning | `Secret from {VaultUri} expires at {ExpiresOn}, within the {Threshold} warning threshold` | `VaultUri`, `ExpiresOn`, `Threshold` |
 | 1103 | `SecretNotYetValid` | Warning | `Secret from {VaultUri} is not valid until {NotBefore} but is being used now` | `VaultUri`, `NotBefore` |
 | 1201 | `CacheHit` | Debug | `Returning cached secret for URI: {SecretUri}` | masked `SecretUri` |
 | 1202 | `CacheFull` | Warning | `The secret cache holds its maximum of {Limit} entries; further secrets are resolved on every call rather than cached. ...` | `Limit` (once per resolver) |
+
+IDs 1007 and 1008 are retired (they belonged to the removed `AZURE_CLIENT_ID` store-certificate convention) and are not reused.
 
 Note that 1001 covers two distinct records — the resolver's pre-read statement, which names the secret, and the pipeline's post-read confirmation, which carries a masked URI. Both are `Debug` and both concern a single secret read, so they share an ID. Filter on the message template if you need to distinguish them.
 

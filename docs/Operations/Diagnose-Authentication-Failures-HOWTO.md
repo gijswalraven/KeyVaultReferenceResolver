@@ -63,12 +63,11 @@ The library chooses the credential in a fixed order. The first one that applies 
 | --- | --- | --- | --- |
 | 1 | `options.Credential` | It is set in code. | Look for `Credential =` in the application's setup. |
 | 2 | `options.ClientCertificate` | It is set in code and `Credential` is not. | Look for `ClientCertificate =`. Certificate failures are thrown at startup. |
-| 3 | Environment convention | `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set, a store certificate's subject or friendly name contains the client ID, none of `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME`, `AZURE_PASSWORD` is set, `ManagedIdentityClientId` is unset, `TenantId` is unset or equals `AZURE_TENANT_ID`, and `ExcludeEnvironmentCredential` is not `true`. | Log event **1007** (Information): "Authenticating with a store client certificate found for AZURE_CLIENT_ID". |
-| 4 | `DefaultAzureCredential` | None of the above applies. | Environment credential, then workload identity, then managed identity, plus (only with `AllowDeveloperCredentials = true`) Azure CLI, Azure Developer CLI, Visual Studio and Azure PowerShell. Interactive browser is always excluded. |
+| 3 | `DefaultAzureCredential` | None of the above applies. | Environment credential, then workload identity, then managed identity, plus (only with `AllowDeveloperCredentials = true`) Azure CLI, Azure Developer CLI, Visual Studio and Azure PowerShell. Interactive browser is always excluded. |
 
 Two consequences:
 
-- **No event 1007 does not mean the certificate is broken.** It means rows 1 to 3 did not apply and the default chain ran. If you expected the convention, check each condition in row 3. In particular, the convention silently does nothing when no certificate matches, or when the store cannot be opened. A certificate that matches but is unusable is not silent: event 1008 (Warning) gives the reason.
+- **A missing or unusable `ClientCertificate` is never silent.** It throws at startup with the specific reason; there is no fallback to the default chain. If `ClientCertificate` is not set, row 3 ran, and nothing in the environment (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`) selects a store certificate.
 - **The library does not log which credential of the default chain succeeded.** Enable Azure SDK logging (`AzureEventSourceListener`) to see it, and be aware that these logs include request URIs, which contain secret names. See the `ClientOptions` remarks in [Configuration-Reference.md](../Deployment/Configuration-Reference.md).
 
 When an option appears to have no effect, check row 1 first: `options.Credential` silently makes `ManagedIdentityClientId`, `TenantId`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` inert.
@@ -116,7 +115,7 @@ These come from Entra ID. They are Microsoft's codes, not the library's; the lib
 | `AADSTS700016` | Application not found in the tenant. | Wrong `AZURE_CLIENT_ID` or `AZURE_TENANT_ID`, or the app lives in another tenant. |
 | `AADSTS700024` | Client assertion is not within its valid time range. | The machine clock is wrong. Fix time synchronisation. |
 | `AADSTS90002` | Tenant not found. | Wrong tenant ID or wrong authority host (sovereign clouds need `AuthorityHost`). |
-| `AADSTS7000215` | Invalid client secret. | A stray `AZURE_CLIENT_SECRET` is selecting the environment credential. Remove it; it also switches the certificate convention off. |
+| `AADSTS7000215` | Invalid client secret. | A stray `AZURE_CLIENT_SECRET` is selecting the environment credential. Remove it. |
 | `AADSTS7000222` | Client secret expired. | Same: remove the stray secret and use the certificate. |
 
 ### HTTP status (authorisation)
@@ -149,8 +148,6 @@ An unreachable Entra ID or vault ends as a `TimeoutException` (per secret) or a 
 | 1004 | `ResolutionSummary` | Information | `Resolved {Count} of {Total}`. |
 | 1005 | `ResolverNotLastSource` | Error | Sources were registered after the resolver and could not be inspected. |
 | 1006 | `UnresolvedReference` | Error | A key still holds a reference. |
-| 1007 | `ClientCertificateFromEnvironment` | Information | The environment convention selected a store certificate. |
-| 1008 | `ClientCertificateFromEnvironmentUnusable` | Warning | A certificate names `AZURE_CLIENT_ID` but is expired, not yet valid or has no accessible private key; the default chain was used. The message gives the reason. |
 | 1001 | `SecretResolved` | Debug | Names the secret. Local diagnosis only. |
 
 ## Step 6: Confirm from the machine
@@ -158,15 +155,13 @@ An unreachable Entra ID or vault ends as a `TimeoutException` (per secret) or a 
 Run these as the account the application runs as.
 
 ```powershell
-# What the process will see
-[Environment]::GetEnvironmentVariable("AZURE_TENANT_ID",  "User")
-[Environment]::GetEnvironmentVariable("AZURE_CLIENT_ID",  "User")
+# A stray secret in the environment selects the environment credential
 [Environment]::GetEnvironmentVariable("AZURE_CLIENT_SECRET", "User")      # should be empty
-[Environment]::GetEnvironmentVariable("AZURE_CLIENT_ID",  "Machine")      # Machine scope too
+[Environment]::GetEnvironmentVariable("AZURE_CLIENT_SECRET", "Machine")   # Machine scope too
 
-# The certificate the convention would find
+# The certificate that names the client ID (set $clientId first)
 Get-ChildItem Cert:\CurrentUser\My, Cert:\LocalMachine\My |
-    Where-Object { $_.Subject -like "*$env:AZURE_CLIENT_ID*" } |
+    Where-Object { $_.Subject -like "*$clientId*" } |
     Select-Object PSParentPath, Subject, Thumbprint, NotBefore, NotAfter, HasPrivateKey
 
 # The clock
@@ -181,7 +176,6 @@ You cannot reproduce the call with `az login --service-principal --certificate` 
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| No event 1007, but a certificate exists | The conditions in row 3 of step 2 are not all met, or the store cannot be read by this account. | Run the certificate query in step 6 as the application's account; check for `AZURE_CLIENT_SECRET`. |
 | The inner exception is missing from the log | The logger records only `ex.Message`. | Log the whole chain as in step 1, or use a provider that formats exceptions. |
 | Messages show `***` instead of a secret name | By design: names are masked in exceptions. | Enable Debug logging locally (event 1001) to see names. |
 | The error changes between runs | Several credentials in the default chain are in play, or the environment differs between interactive and task runs. | Compare the environment of the task's account (step 6). |
@@ -191,7 +185,7 @@ You cannot reproduce the call with `az login --service-principal --certificate` 
 - **Do not enable Debug logging in production.** Event 1001 names secrets.
 - **Azure SDK logging includes request URIs**, and therefore secret names. Filter the `Azure-Core` event source if names are sensitive.
 - **Error messages contain the process user and certificate thumbprint**, never key material. Treat logs as internal but they are not secret.
-- **Do not work around a failure by adding a secret** such as `AZURE_CLIENT_SECRET` to the environment. It switches the certificate convention off and puts a secret back where this setup avoids one.
+- **Do not work around a failure by adding a secret** such as `AZURE_CLIENT_SECRET` to the environment. It puts a secret back where this setup avoids one.
 
 ## Limitations
 

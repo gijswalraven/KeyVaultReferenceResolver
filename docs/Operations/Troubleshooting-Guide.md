@@ -265,7 +265,7 @@ Resolution never saw that value. This is **not** the fail-closed path — the li
 ### An option appears to have no effect
 
 - **`options.Credential` is set.** It silently makes `ManagedIdentityClientId`, `TenantId`, `AuthorityHost`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` inert.
-- **`options.ClientCertificate` is set** (or the environment convention selected a store certificate). The store certificate is used instead of the default chain, so `ManagedIdentityClientId`, `TenantId`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` are inert for the credential. With the convention, `ExcludeEnvironmentCredential = true` instead *switches the convention off*.
+- **`options.ClientCertificate` is set**. The store certificate is used instead of the default chain, so `ManagedIdentityClientId`, `TenantId`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` are inert for the credential.
 - **`options.AuthMethod` is set.** Auto-detection and `KubernetesRoleName` are skipped.
 - **`InvalidateCache` on the wrong instance.** The extension method builds its own resolver internally and does not expose it. Refresh only works on a resolver you registered in DI.
 - **`CacheTtl` or `InvalidateCache` on `IConfiguration` values.** They cannot change values already materialised at startup. Only a restart does.

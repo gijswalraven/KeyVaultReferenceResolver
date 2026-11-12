@@ -67,7 +67,7 @@ try
     configuration = new ConfigurationBuilder()
         .AddJsonFile("appsettings.json", optional: false)
         .AddEnvironmentVariables()
-        .AddKeyVaultReferenceResolver(new KeyVaultReferenceResolverOptions(), logger)   // last
+        .AddKeyVaultReferenceResolver(options, logger)   // last; options from Step 4
         .Build();
 }
 catch (Exception ex)
@@ -90,29 +90,28 @@ return 0;
 
 **The register-last rule.** The resolver scans only the sources registered before it, and resolution happens once, when `AddKeyVaultReferenceResolver` is called. A source added afterwards is never resolved. If such a source still carries a literal `@Microsoft.KeyVault(...)` value, the application fails to build the configuration with a `KeyVaultReferenceResolutionException` that starts with "Configuration source(s) registered after AddKeyVaultReferenceResolver carry unresolved reference(s) for: ..." (log events 1005 and 1006). A later source that holds ordinary values, such as `AddCommandLine` to override a setting, is allowed.
 
-Passing a logger matters: without one the library logs to `NullLogger` and the log shows nothing. The records worth keeping are the failure (1003), the summary (1004, "Resolved N of M ...") and, when the environment convention is used, 1007. See [Logging-And-Monitoring.md](../Operations/Logging-And-Monitoring.md).
+Passing a logger matters: without one the library logs to `NullLogger` and the log shows nothing. The records worth keeping are the failure (1003), the summary (1004, "Resolved N of M ..."). See [Logging-And-Monitoring.md](../Operations/Logging-And-Monitoring.md).
 
-## Step 4: Set the identity variables
+## Step 4: Configure the identity
 
-For the environment convention, the process needs `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`, and a certificate whose subject contains the client ID. They are identifiers, not secrets.
+The tenant and client ID are identifiers, not secrets. Put them in `appsettings.json` (a plain value, not a Key Vault reference, which is not resolved yet) and pass them as `ClientCertificate`; no environment variables are needed:
 
-For a dedicated user account, set them for that user, signed in as that user:
-
-```powershell
-[Environment]::SetEnvironmentVariable("AZURE_TENANT_ID", $tenantId, "User")
-[Environment]::SetEnvironmentVariable("AZURE_CLIENT_ID", $clientId, "User")
+```json
+{
+  "KeyVault": { "TenantId": "<tenant id>", "ClientId": "<client id>" }
+}
 ```
 
-For a gMSA or `SYSTEM`, from an elevated prompt:
-
-```powershell
-[Environment]::SetEnvironmentVariable("AZURE_TENANT_ID", $tenantId, "Machine")
-[Environment]::SetEnvironmentVariable("AZURE_CLIENT_ID", $clientId, "Machine")
+```csharp
+var identity = new ConfigurationBuilder().AddJsonFile("appsettings.json", optional: false).Build();
+var options = new KeyVaultReferenceResolverOptions
+{
+    ClientCertificate = new CertificateStoreCredentialOptions(
+        identity["KeyVault:TenantId"]!, identity["KeyVault:ClientId"]!)
+};
 ```
 
-Each start of the task builds a fresh environment, so a changed variable is picked up the next time the task starts, without signing out. A run that is already in progress keeps the values it started with.
-
-If you prefer the explicit form, put the three values in `appsettings.json` and set `ClientCertificate` in code; no environment variables are needed then. See the client certificate HOWTO.
+Use `options` in the `AddKeyVaultReferenceResolver(options, logger)` call of Step 3. The certificate is the one whose subject contains the client ID, in the store of the run-as account. See the client certificate HOWTO.
 
 ## Step 5: Register the task
 
@@ -172,7 +171,7 @@ Get-ScheduledTaskInfo -TaskName "MyConsumer" | Select-Object LastRunTime, LastTa
 
 Everything the resolver checks happens while the configuration is built, in this order:
 
-1. **Certificate checks** (explicit `ClientCertificate`, or a certificate found by convention). Missing, no private key, expired, or not yet valid throws an `InvalidOperationException` from `AddKeyVaultReferenceResolver`, **before any vault call**. The message names the thumbprint, the store, the process user and, where relevant, the date.
+1. **Certificate checks** (`ClientCertificate`). Missing, no private key, expired, or not yet valid throws an `InvalidOperationException` from `AddKeyVaultReferenceResolver`, **before any vault call**. The message names the thumbprint, the store, the process user and, where relevant, the date.
 2. **Vault reads.** Each reference is read under the per-secret `Timeout`. Any failure, whether authentication, authorisation, a missing secret or a timeout, is wrapped in a `KeyVaultReferenceResolutionException` with the generic message `Failed to resolve Key Vault reference for configuration key '<key>'`. The real cause is in its `InnerException`. The first failure is thrown, because `ThrowOnResolveFailure` defaults to `true`.
 3. **Registration order.** A later source carrying an unresolved reference throws a `KeyVaultReferenceResolutionException` when the configuration is built.
 
@@ -216,8 +215,6 @@ With the defaults, an unreachable vault makes the startup fail after at most abo
 | `LastTaskResult` is `0xE0434352` | Unhandled exception in the consumer. | Read the Application log (`.NET Runtime`, event 1026); catch and log at startup as in Step 3. |
 | "Certificate not found" only when run by the task | The task's account has a different `CurrentUser` store than the account you tested with. | Create the certificate as the run-as account, or use `LocalMachine` with Read on the key. |
 | "has no private key, or this account cannot access it" | Machine-store key without Read for the run-as account. | Grant the account Read on the key (see the client certificate HOWTO, Option B). |
-| Convention not applied, default chain errors instead | `AZURE_CLIENT_ID` or `AZURE_TENANT_ID` is not in the task's environment, or no certificate subject contains the client ID. | Set the variables for the right scope (Step 4); check the subject. |
-| Variable changes have no effect | The task run was already in progress, or the variable was set for another scope or account. | Start the task again; check `User` versus `Machine` scope. |
 | The task does not retry after a failed start | Restart settings ignore non-zero exit codes. | Use a repeating trigger or an in-app retry (Step 6). |
 | The task stops mid-run | `-ExecutionTimeLimit` is shorter than the run. | Raise it above the application time plus `OverallTimeout`. |
 | "Configuration source(s) registered after AddKeyVaultReferenceResolver carry unresolved reference(s)" | A source with a reference was added after the resolver. | Move `AddKeyVaultReferenceResolver` last. |
@@ -228,7 +225,7 @@ For failures between the app and Entra ID or the vault, see [Diagnose-Authentica
 ## Security Considerations
 
 - **A dedicated account per application**, with only the rights the task needs. The account is the identity boundary on the VM: whoever can run code as it can use its certificate.
-- **No secrets in the task definition.** The task needs only identifiers (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`). Avoid putting `AZURE_CLIENT_SECRET` anywhere; when set, it also switches the environment convention off.
+- **No secrets in the task definition.** The task needs only identifiers (tenant ID, client ID). Avoid putting `AZURE_CLIENT_SECRET` anywhere.
 - **Registering with a password** stores the credential in Windows. Prefer a gMSA, which has no password to manage.
 - **Protect the application folder.** The exe and `appsettings.json` should not be writable by the run-as account or by other users, or the task becomes a way to run arbitrary code as that identity.
 - **Logs.** The library keeps secret names out of its Information records. Debug level (event 1001) names secrets, so do not enable it in production.
@@ -241,7 +238,7 @@ For failures between the app and Entra ID or the vault, see [Diagnose-Authentica
 
 ## Related Documents
 
-- [Client-Certificate-Authentication-HOWTO.md](Client-Certificate-Authentication-HOWTO.md): identity, certificate and convention
+- [Client-Certificate-Authentication-HOWTO.md](Client-Certificate-Authentication-HOWTO.md): identity and certificate
 - [Certificate-Rotation-And-Expiry-Monitoring-HOWTO.md](../Operations/Certificate-Rotation-And-Expiry-Monitoring-HOWTO.md): replacing the certificate
 - [Diagnose-Authentication-Failures-HOWTO.md](../Operations/Diagnose-Authentication-Failures-HOWTO.md): when startup fails
 - [Configuration-Reference.md](Configuration-Reference.md): `Timeout`, `OverallTimeout`, `ThrowOnResolveFailure`

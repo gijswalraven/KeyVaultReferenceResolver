@@ -52,93 +52,6 @@ namespace CertificateStoreCredentials
             return builder.ToString();
         }
 
-        internal const string TenantIdVariable = "AZURE_TENANT_ID";
-        internal const string ClientIdVariable = "AZURE_CLIENT_ID";
-
-        /// <summary>
-        /// Environment variables that mean the environment already names another way to
-        /// authenticate (client secret, certificate file, federated token). The convention then
-        /// stays out of the way.
-        /// </summary>
-        private static readonly string[] OtherMechanismVariables =
-        {
-            "AZURE_CLIENT_SECRET",
-            "AZURE_CLIENT_CERTIFICATE_PATH",
-            "AZURE_FEDERATED_TOKEN_FILE",
-            // Username/password (ROPC): the fourth mode EnvironmentCredential supports. A user
-            // identity is not the service principal, so the convention stays out of the way.
-            "AZURE_USERNAME",
-            "AZURE_PASSWORD"
-        };
-
-        /// <summary>
-        /// Finds the store certificate for the service principal named by <c>AZURE_TENANT_ID</c> and
-        /// <c>AZURE_CLIENT_ID</c>: the certificate whose subject or friendly name contains the client
-        /// ID, in <c>CurrentUser\My</c> and then <c>LocalMachine\My</c>.
-        /// </summary>
-        /// <param name="getVariable">Reads an environment variable.</param>
-        /// <param name="candidatesFor">Returns the certificates of the <c>My</c> store at a location. Takes ownership of nothing; the caller disposes what it returns.</param>
-        /// <param name="now">The time the certificate validity is judged against.</param>
-        /// <param name="requiredTenantId">When given, the convention only applies if <c>AZURE_TENANT_ID</c> equals it.</param>
-        /// <returns>
-        /// The settings, or <c>null</c> when the tenant or client ID is missing, another authentication
-        /// mechanism is configured, or no certificate carries the client ID. Those variables are
-        /// standard and set for other reasons too (a user-assigned managed identity uses
-        /// <c>AZURE_CLIENT_ID</c>), so they only opt in when a matching certificate exists.
-        /// </returns>
-        /// <remarks>
-        /// Among matches, a certificate that is valid and has a private key wins, then the one that
-        /// expires last, so a renewed certificate is picked up without any configuration change. A
-        /// usable match in any searched location wins over an unusable one in an earlier location. If
-        /// every match is unusable the best one is still returned, and <see cref="Load"/> then fails with
-        /// the specific reason (expired, no private key, ...) rather than silently falling back to a
-        /// credential chain that would fail less clearly.
-        /// </remarks>
-        internal static CertificateStoreCredentialOptions? FromEnvironment(
-            Func<string, string?> getVariable,
-            Func<StoreLocation, X509Certificate2Collection> candidatesFor,
-            DateTimeOffset now,
-            string? requiredTenantId = null)
-        {
-            var found = FindFromEnvironment(getVariable, candidatesFor, now, requiredTenantId);
-            if (found == null)
-                return null;
-
-            found.Certificate.Dispose();
-            return found.Settings;
-        }
-
-        /// <summary>
-        /// The same search as <see cref="FromEnvironment"/>, returning the certificate it picked so the
-        /// caller does not have to read the store a second time. The caller owns the certificate.
-        /// </summary>
-        internal static Match? FindFromEnvironment(
-            Func<string, string?> getVariable,
-            Func<StoreLocation, X509Certificate2Collection> candidatesFor,
-            DateTimeOffset now,
-            string? requiredTenantId = null)
-        {
-            var tenantId = getVariable(TenantIdVariable);
-            var clientId = getVariable(ClientIdVariable);
-            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId))
-                return null;
-
-            if (OtherMechanismVariables.Any(name => !string.IsNullOrWhiteSpace(getVariable(name))))
-                return null;
-
-            tenantId = tenantId!.Trim();
-            clientId = clientId!.Trim();
-
-            // A caller that has already chosen a tenant is not served by a service principal of
-            // another one named in the environment.
-            if (!string.IsNullOrWhiteSpace(requiredTenantId)
-                && !string.Equals(requiredTenantId!.Trim(), tenantId, StringComparison.OrdinalIgnoreCase))
-                return null;
-
-            return FindByClientId(
-                tenantId, clientId, new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine }, candidatesFor, now);
-        }
-
         /// <summary>A certificate picked from a store, with the settings that name it. The holder owns the certificate.</summary>
         internal sealed class Match
         {
@@ -300,7 +213,7 @@ namespace CertificateStoreCredentials
 
         /// <summary>
         /// The friendly name, or empty where the platform cannot supply one. Reading it throws on some
-        /// platforms, and one such certificate must not turn "the convention does not apply" into a
+        /// platforms, and one such certificate must not turn "no match" into a
         /// startup crash.
         /// </summary>
         private static string FriendlyNameOf(X509Certificate2 certificate)

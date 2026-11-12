@@ -163,36 +163,10 @@ For a service principal whose certificate lives in the certificate store with a
 non-exportable private key (a Scheduled Task on a VM, no managed identity, no
 `az login`, nothing on disk):
 
-**By convention, no code.** Name the service principal's certificate after its client ID
-(`CN=<client ID>`), set the standard Azure Identity variables, and call
-`AddKeyVaultReferenceResolver()` as usual:
-
-```powershell
-$env:AZURE_TENANT_ID = "…"
-$env:AZURE_CLIENT_ID = "…"
-```
-
-The resolver then looks in `CurrentUser\My`, and after that `LocalMachine\My`, for a certificate whose
-subject or friendly name contains `AZURE_CLIENT_ID` (case-insensitive). Among matches it prefers one
-that is valid and has a private key, then the one that expires last, so a renewed certificate is
-picked up without changing anything. An information record (event 1007) notes that it was used.
-
-- Only when a matching certificate exists does the convention take over. `AZURE_TENANT_ID` and
-  `AZURE_CLIENT_ID` are set for other reasons too (a user-assigned managed identity uses
-  `AZURE_CLIENT_ID`), so without a matching certificate the default credential chain is used as before.
-- If a certificate names the client but is unusable (expired, not yet valid, no accessible private key),
-  the resolver logs a warning with that reason (event 1008) and uses the default credential chain,
-  because `AZURE_CLIENT_ID` is also set for managed identities and a stale certificate must not stop
-  the application. An explicit `ClientCertificate` is required and does throw.
-- It stays out of the way when `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`,
-  `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set, when `Credential` or
-  `ClientCertificate` is set, when `ManagedIdentityClientId` is set or `TenantId` differs from
-  `AZURE_TENANT_ID` (a deliberate choice of another identity), and when
-  `ExcludeEnvironmentCredential = true` (both take an identity from the process environment).
-- A missing certificate is therefore *not* reported by the convention itself: with no match you get
-  the default chain and its error. To fail on a missing certificate, use the explicit form below.
-
-**Or explicitly**, which makes the certificate *required* (a missing one fails at setup):
+Name the service principal's certificate after its client ID (`CN=<client ID>`) and take the tenant and
+client ID from your own configuration. The certificate is *required*: a missing one, or an unusable one
+(expired, not yet valid, no accessible private key), always throws at startup. Nothing is read from
+`AZURE_*` environment variables to pick it.
 
 ```csharp
 builder.AddKeyVaultReferenceResolver(o =>
@@ -212,7 +186,8 @@ builder.AddKeyVaultReferenceResolver(o =>
 With a thumbprint, the certificate is searched in the `My` store of `CurrentUser` (or
 `LocalMachine`). Pasting the thumbprint from the Certificates snap-in works as is: spaces,
 colons, hyphens and the invisible U+200E it adds are removed. Without a thumbprint it is the
-certificate whose subject or friendly name contains the client ID, as in the convention above.
+certificate whose subject or friendly name contains the client ID. Among matches, one that is valid and
+has a private key wins, then the one that expires last, so renewal needs no change.
 
 The certificate is checked when the resolver is created, not on the first vault call. An
 `InvalidOperationException` names the thumbprint (or client ID), store and process user when the

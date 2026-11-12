@@ -12,7 +12,7 @@ Three things have to line up, and most failures come from one of them being off:
 
 1. **The service principal** exists in Entra ID, has the certificate's *public* key registered, and holds a role on the vault.
 2. **The certificate** exists, with its private key, in the store of the account that runs the application.
-3. **The application** knows the tenant and client ID, and either finds the certificate by convention or is told which one.
+3. **The application** knows the tenant and client ID, and is told which certificate to use (by client ID or by thumbprint) through `ClientCertificate`. Nothing is read from `AZURE_*` environment variables.
 
 ## How It Fits Together
 
@@ -20,7 +20,7 @@ Three things have to line up, and most failures come from one of them being off:
 graph LR
     A["App registration<br/>(client ID)"] --> B["Certificate CN=client ID<br/>private key in store"]
     B -->|"public key .cer"| A
-    C["Scheduled Task<br/>AZURE_TENANT_ID + AZURE_CLIENT_ID"] --> D["KeyVaultReferenceResolver"]
+    C["Scheduled Task<br/>ClientCertificate(tenant ID, client ID)"] --> D["KeyVaultReferenceResolver"]
     D -->|"finds"| B
     D -->|"signed token request"| E["Entra ID"]
     E -->|"access token"| D
@@ -34,7 +34,7 @@ The resolver signs a token request with the private key (the key stays in the st
 - A Windows VM and the account the application runs as (referred to below as the **run-as account**).
 - Permission to create an app registration in the tenant, and to assign a role on the vault.
 - The Azure CLI (`az`) for the registration steps, or the Azure portal.
-- The **CertificateStoreCredential** package. `KeyVaultReferenceResolver` depends on it, so referencing the resolver is enough for the resolver scenarios; an application that only needs a token for something else references `CertificateStoreCredential` alone, without the resolver. Its [README](../../src/CertificateStoreCredential/README.md) is the self-contained reference for the credential (convention, explicit form, creating the certificate, rotation, error messages). The types are in the `CertificateStoreCredentials` namespace.
+- The **CertificateStoreCredential** package. `KeyVaultReferenceResolver` depends on it, so referencing the resolver is enough for the resolver scenarios; an application that only needs a token for something else references `CertificateStoreCredential` alone, without the resolver. Its [README](../../src/CertificateStoreCredential/README.md) is the self-contained reference for the credential (usage, creating the certificate, rotation, error messages). The types are in the `CertificateStoreCredentials` namespace.
 
 Fill in these values once; the commands below use them:
 
@@ -143,54 +143,18 @@ Delete the `.cer` afterwards if you like; it is reproducible from the store.
 
 ## Step 5: Configure and run the application
 
-### By convention (no code, no thumbprint)
+### Configure the certificate
 
-Give the application two standard environment variables and register the resolver as usual:
-
-```powershell
-# For the run-as account (or use "Machine" from an elevated prompt):
-[Environment]::SetEnvironmentVariable("AZURE_TENANT_ID", $tenantId, "User")
-[Environment]::SetEnvironmentVariable("AZURE_CLIENT_ID", $clientId, "User")
-```
-
-```csharp
-var builder = Host.CreateApplicationBuilder(args);
-builder.Configuration.AddKeyVaultReferenceResolver();   // nothing certificate-specific
-```
-
-```json
-{
-  "ConnectionStrings": {
-    "Db": "@Microsoft.KeyVault(SecretUri=https://contoso-prod.vault.azure.net/secrets/db-connection)"
-  }
-}
-```
-
-The resolver searches `CurrentUser\My`, then `LocalMachine\My`, for a certificate whose subject or friendly name contains `AZURE_CLIENT_ID`. Among matches it prefers one that is currently valid and has a private key, then the one that expires last.
-
-Rules worth knowing:
-
-| Situation | Result |
-| --- | --- |
-| Matching certificate found and usable | It is used. An information record (event 1007) says so. |
-| Matching certificate found but expired, not yet valid, or no private key | A warning (event 1008) names the reason and the default credential chain is used. With the explicit `ClientCertificate` form, setup throws an `InvalidOperationException` naming the reason instead. |
-| No matching certificate | Convention does not apply; the default credential chain is used as before. |
-| `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set | Convention stays out of the way. |
-| `options.Credential` or `options.ClientCertificate` is set | The explicit setting wins. |
-| `ExcludeEnvironmentCredential = true` | Convention is switched off. |
-
-A scheduled task inherits the environment of its account. After changing user or machine variables, restart the task (a task that was already running keeps the old environment).
-
-### Explicitly (fail if the certificate is missing)
-
-The convention treats "no matching certificate" as "this feature is not in use", because `AZURE_CLIENT_ID` is also set by other mechanisms such as user-assigned managed identities. If the application must fail loudly when the certificate is absent, name it explicitly:
+Name the certificate after the client ID and tell the resolver the tenant and client ID. The certificate is required: a missing one, or an unusable one (expired, not yet valid, no accessible private key), always throws an `InvalidOperationException` at startup naming the reason, before any vault call.
 
 ```csharp
 using CertificateStoreCredentials;   // CertificateStoreCredentialOptions
 
+var builder = Host.CreateApplicationBuilder(args);
 builder.Configuration.AddKeyVaultReferenceResolver(o =>
 {
-    // Found by client ID, like the convention, but required: no match fails at setup.
+    // By client ID: the certificate whose subject or friendly name contains it
+    // (CurrentUser\My, then LocalMachine\My). Required: no match fails at setup.
     o.ClientCertificate = new CertificateStoreCredentialOptions(tenantId, clientId);
 
     // One store only:
@@ -201,9 +165,17 @@ builder.Configuration.AddKeyVaultReferenceResolver(o =>
 });
 ```
 
-Without a thumbprint, the certificate is the one whose subject or friendly name contains the client ID, chosen the same way as in the convention (valid with a private key first, then the one expiring last), so renewal needs no change. A thumbprint pins one specific certificate and must be updated at every rotation; it may be pasted straight from the Certificates snap-in, where spaces, colons, hyphens and the invisible character it adds are removed.
+```json
+{
+  "ConnectionStrings": {
+    "Db": "@Microsoft.KeyVault(SecretUri=https://contoso-prod.vault.azure.net/secrets/db-connection)"
+  }
+}
+```
 
-Read the values from ordinary configuration (never from a Key Vault reference, which is not resolved yet at this point). The error when nothing matches names the client ID, the stores searched and the process user.
+Without a thumbprint, among matches a certificate that is currently valid and has a private key wins, then the one that expires last, so renewal needs no change. A thumbprint pins one specific certificate and must be updated at every rotation; it may be pasted straight from the Certificates snap-in, where spaces, colons, hyphens and the invisible character it adds are removed.
+
+`options.Credential`, when set, wins over `ClientCertificate`. Read the tenant and client ID from ordinary configuration (never from a Key Vault reference, which is not resolved yet at this point). The error when nothing matches names the client ID, the stores searched and the process user.
 
 ### Run it
 
@@ -223,15 +195,11 @@ dotnet add package CertificateStoreCredential
 using Azure.Core;
 using CertificateStoreCredentials;
 
-// Convention: AZURE_TENANT_ID + AZURE_CLIENT_ID, certificate named after the client ID.
-// Returns null when the convention does not apply; throws InvalidOperationException when a
-// certificate names the client but is expired, not yet valid or has no accessible private key.
-using CertificateStoreCredential? credential = CertificateStoreCredential.TryCreateFromEnvironment();
+// Certificate required (same options as ClientCertificate). Throws InvalidOperationException
+// when it is missing, expired, not yet valid or has no accessible private key.
+using var credential = CertificateStoreCredential.Create(new CertificateStoreCredentialOptions(tenantId, clientId));
 
-// Or explicit, certificate required (same options as ClientCertificate):
-// using var credential = CertificateStoreCredential.Create(new CertificateStoreCredentialOptions(tenantId, clientId));
-
-AccessToken token = await credential!.GetTokenAsync(
+AccessToken token = await credential.GetTokenAsync(
     new TokenRequestContext(new[] { "https://database.windows.net/.default" }),
     cancellationToken);
 // token.Token is the bearer token, token.ExpiresOn its expiry.
@@ -240,9 +208,9 @@ AccessToken token = await credential!.GetTokenAsync(
 Things to know:
 
 - **Create it once and keep it.** The wrapped `ClientCertificateCredential` caches tokens and renews them near expiry; a new instance per call discards that cache. Register one instance as a singleton and dispose it at shutdown. `Dispose()` releases the loaded certificate, may be called more than once, and makes later token requests throw `ObjectDisposedException`. `Thumbprint` tells you which certificate was picked, for logging.
-- **Same rules as the resolver.** The same lookup, validation and messages apply, at creation, not on the first token request, because the resolver uses this very class. `TryCreateFromEnvironment()` returns `null` exactly where `AddKeyVaultReferenceResolver` would leave the default chain in charge: no variables, no matching certificate, or `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` set.
-- **No fallback is built in, and no logging.** Decide what `null` means for your application: fail, or fall back to another credential, for example `TokenCredential credential = (TokenCredential?)CertificateStoreCredential.TryCreateFromEnvironment() ?? new DefaultAzureCredential();` (then dispose only if it is the certificate credential). The package has no logging, so event 1007 is written by the resolver only.
-- **Authority host and retry settings** are the defaults of `ClientCertificateCredential` (including `AZURE_AUTHORITY_HOST`). Both factories have an overload that takes a `ClientCertificateCredentialOptions`; the resolver uses it to pass on its own `AuthorityHost`, `AdditionallyAllowedTenants` and retry settings.
+- **Same rules as the resolver.** The same lookup, validation and messages apply, at creation, not on the first token request, because the resolver uses this very class.
+- **No fallback is built in, and no logging.** If the application should fall back to another credential when the certificate is absent, catch the `InvalidOperationException` and decide. The package has no logging.
+- **Authority host and retry settings** are the defaults of `ClientCertificateCredential` (including `AZURE_AUTHORITY_HOST`). `Create` has an overload that takes a `ClientCertificateCredentialOptions`; the resolver uses it to pass on its own `AuthorityHost`, `AdditionallyAllowedTenants` and retry settings.
 
 A sketch of an Azure SQL authentication provider that uses it (in your project, with your `Microsoft.Data.SqlClient` version; not compiled as part of either package):
 
@@ -269,7 +237,7 @@ The service principal also needs a database user for that identity (`CREATE USER
 
 ## Step 6: Rotate the certificate
 
-With the convention there is nothing to change in the application:
+When the certificate is found by client ID, there is nothing to change in the application:
 
 1. Create a new certificate on the VM with the same `CN=<client id>` (Step 3), well before the old one expires.
 2. Upload its public key with `--append` (Step 4).
@@ -280,9 +248,9 @@ With the convention there is nothing to change in the application:
 Remove-Item "Cert:\CurrentUser\My\<old thumbprint>"
 ```
 
-With the explicit form, update the thumbprint in the application's configuration at step 3.
+With a thumbprint, update it in the application's configuration at step 3.
 
-Put the expiry date in a calendar. With the explicit form, an expired certificate stops the application at startup with a clear message, by design, but that is still an outage. With the convention it only logs a warning (event 1008) and the default chain takes over, which may fail later with a less specific error.
+Put the expiry date in a calendar. An expired certificate always stops the application at startup with a clear message, by design, but that is still an outage.
 
 ## Troubleshooting
 
@@ -290,32 +258,29 @@ Certificate problems surface when the resolver is created, before any vault call
 
 | Message or symptom | Cause | Fix |
 | --- | --- | --- |
-| `No client certificate whose subject or friendly name contains the client ID ...` | Explicit form without a thumbprint: no certificate names the client ID in the searched stores. | Check the subject (Step 3 verification) and that you are running as the account whose store holds it. |
-| `...was not found in the My certificate store of CurrentUser (process user 'DOMAIN\user')` | Explicit form with a thumbprint. Wrong thumbprint, or the certificate is in another account's store. | Compare the user in the message with the account the task runs as; create the certificate as that account, or use the local machine store. |
+| `No client certificate whose subject or friendly name contains the client ID ...` | Client ID form (no thumbprint): no certificate names the client ID in the searched stores. | Check the subject (Step 3 verification) and that you are running as the account whose store holds it. |
+| `...was not found in the My certificate store of CurrentUser (process user 'DOMAIN\user')` | Thumbprint form. Wrong thumbprint, or the certificate is in another account's store. | Compare the user in the message with the account the task runs as; create the certificate as that account, or use the local machine store. |
 | `...has no private key, or this account cannot access it` | Certificate imported without its key, or machine-store key without Read for the run-as account. | Recreate it on the VM (Step 3), or grant Read via **Manage Private Keys**. |
 | `...expired on <date>` | Certificate past its end date. | Rotate (Step 6). |
 | `...is not valid before <date>` | Start date in the future, or the machine clock is wrong. A small skew (5 minutes) is tolerated. | Check the VM clock and the certificate's `NotBefore`. |
-| The default credential chain fails instead, and event 1007 is absent | Convention found no certificate whose subject contains `AZURE_CLIENT_ID`, or `AZURE_CLIENT_ID` is wrong, or the task does not see the variables. | Run the verification command in Step 3 as the run-as account; check the variables in the task's environment. |
 | `AADSTS700027` (client assertion contains an invalid signature) | The certificate in the store is not the one registered on the app. | Upload the current public key (Step 4); check the thumbprint in the portal. |
-| `AADSTS700016` (application not found in the tenant) | Wrong `AZURE_CLIENT_ID` or `AZURE_TENANT_ID`. | Correct the values. |
+| `AADSTS700016` (application not found in the tenant) | Wrong client ID or tenant ID in `CertificateStoreCredentialOptions`. | Correct the values. |
 | `HTTP 403` from Key Vault | Authentication worked; the service principal lacks a role, or the vault firewall blocks the VM. | Step 2, and the vault network settings. |
 | A timeout | Entra ID or Key Vault unreachable. Token acquisition runs inside the existing `Timeout` and `OverallTimeout`, so this fails in bounded time rather than hanging. | Check outbound access to `login.microsoftonline.com` and the vault; adjust `Timeout` if needed. |
-
-To see which certificate was used, enable Information logging for KeyVaultReferenceResolver. Event 1007 is written when the convention selected a certificate. It carries no identifiers.
 
 ## Security Considerations
 
 - **Scope the role narrowly.** The identity is the machine. Grant `Key Vault Secrets User` on the one vault, and use a separate app registration per environment.
 - **One certificate per machine** where practical. A non-exportable key is bound to its VM, which is a feature: a stolen disk image does not yield a usable credential.
-- **Do not combine mechanisms.** Setting `AZURE_CLIENT_SECRET` as well keeps the convention out of the way and puts a secret back in the environment.
-- **Set `ExcludeEnvironmentCredential = true`** if the application also runs somewhere that uses managed identity, so process environment variables cannot redirect vault access. It also switches this convention off, so use the explicit `ClientCertificate` there.
+- **Do not combine mechanisms.** Setting `AZURE_CLIENT_SECRET` as well puts a secret back in the environment.
+- **Set `ExcludeEnvironmentCredential = true`** if the application also runs somewhere that uses managed identity, so process environment variables cannot redirect vault access. An explicit `ClientCertificate` is not affected by it.
 - **The `.cer` file and the thumbprint are not secret.** Only the private key is, and it never leaves the store.
 
 ## Limitations
 
 - The certificate store is a Windows feature. On other platforms the lookup works only where .NET provides a `My` store, and otherwise reports the certificate as not found.
-- `EnvironmentCredential`, and therefore `DefaultAzureCredential`, cannot use a store certificate. Use `ClientCertificate` or the convention.
-- The convention ignores `ManagedIdentityClientId`, `TenantId`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` once it has selected a certificate; the tenant comes from `AZURE_TENANT_ID`.
+- `EnvironmentCredential`, and therefore `DefaultAzureCredential`, cannot use a store certificate. Use `ClientCertificate`.
+- `ClientCertificate` makes `ManagedIdentityClientId`, `TenantId`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` inert; the tenant comes from the options.
 - Creating and exporting certificates is outside the library's scope. This guide uses standard Windows and Azure CLI tooling for that.
 
 ## Related Documents
@@ -324,4 +289,3 @@ To see which certificate was used, enable Information logging for KeyVaultRefere
 - [Configuration-Reference.md](Configuration-Reference.md): all options, including `ClientCertificate`
 - [Environment-Deployment-Guide.md](Environment-Deployment-Guide.md): other deployment targets
 - [Security-Model.md](../Architecture/Security-Model.md): why environment-driven identity is guarded
-- [Logging-And-Monitoring.md](../Operations/Logging-And-Monitoring.md): event 1007

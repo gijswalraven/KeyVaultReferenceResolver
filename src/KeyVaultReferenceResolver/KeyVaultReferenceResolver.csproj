@@ -8,8 +8,8 @@
 
     <!-- Package Information -->
     <PackageId>KeyVaultReferenceResolver</PackageId>
-    <Version>2.1.0</Version>
-    <PackageReleaseNotes>Minor release. Adds authentication with a client certificate from the Windows certificate store: set options.ClientCertificate, or set AZURE_TENANT_ID and AZURE_CLIENT_ID and name a store certificate after the client ID. The certificate logic is the new CertificateStoreCredential package, which this package now depends on. No change unless a certificate that names AZURE_CLIENT_ID exists in the store.</PackageReleaseNotes>
+    <Version>3.0.0</Version>
+    <PackageReleaseNotes>Major release. Removes the AZURE_TENANT_ID / AZURE_CLIENT_ID store-certificate convention and its log events 1007 and 1008; a store certificate is now only used when options.ClientCertificate names it. Depends on CertificateStoreCredential 2.0.0.</PackageReleaseNotes>
     <Authors>Gijs Walraven</Authors>
     <Company>Gijs Walraven</Company>
     <Description>Resolve Azure Key Vault references in Microsoft.Extensions.Configuration using both @Microsoft.KeyVault(SecretUri=...) and @Microsoft.KeyVault(VaultName=...;SecretName=...) formats. Works locally, in Docker, Kubernetes, and anywhere - not just Azure App Service.</Description>

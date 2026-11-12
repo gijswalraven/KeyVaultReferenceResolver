@@ -38,91 +38,28 @@ namespace KeyVaultReferenceResolver
         public KeyVaultSecretResolver(
             KeyVaultReferenceResolverOptions? options = null,
             ILogger? logger = null)
-            : this(options, logger, applyEnvironmentConvention: false)
-        {
-        }
-
-        /// <summary>
-        /// Creates a resolver. With <paramref name="applyEnvironmentConvention"/>, and absent an
-        /// explicit credential or <c>ClientCertificate</c>, a store certificate that names
-        /// <c>AZURE_CLIENT_ID</c> is used if there is one. The extension methods ask for this; a
-        /// resolver constructed directly never reads the environment for an identity.
-        /// </summary>
-        internal KeyVaultSecretResolver(
-            KeyVaultReferenceResolverOptions? options,
-            ILogger? logger,
-            bool applyEnvironmentConvention)
         {
             _options = options ?? new KeyVaultReferenceResolverOptions();
             _options.Validate();
             _logger = logger ?? NullLogger.Instance;
 
-            // Precedence: an explicit Credential, then ClientCertificate, then the environment
-            // convention, then the default chain. A store certificate is validated here, at
-            // construction, so a missing, key-less or expired certificate fails at startup with a
-            // clear message instead of on the first vault call.
-            try
+            // Precedence: an explicit Credential, then ClientCertificate, then the default chain. A
+            // store certificate is validated here, at construction, so a missing, key-less or expired
+            // certificate fails at startup with a clear message instead of on the first vault call.
+            if (_options.Credential != null)
             {
-                if (_options.Credential != null)
-                {
-                    _credential = _options.Credential;
-                }
-                else if (_options.ClientCertificate != null)
-                {
-                    _certificateCredential = CertificateStoreCredential.Create(
-                        _options.ClientCertificate, BuildClientCertificateCredentialOptions(_options));
-                    _credential = _certificateCredential;
-                }
-                else
-                {
-                    if (applyEnvironmentConvention && ConventionApplies(_options))
-                    {
-                        // The convention is opt-in by coincidence: AZURE_CLIENT_ID is also set for
-                        // user-assigned managed identities, so a stale certificate that happens to name
-                        // it must not take the application down. Unlike an explicit ClientCertificate,
-                        // which is required, it warns and leaves the default chain in charge.
-                        try
-                        {
-                            _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
-                                BuildClientCertificateCredentialOptions(_options), _options.TenantId);
-                            if (_certificateCredential != null)
-                                Log.ClientCertificateFromEnvironment(_logger);
-                        }
-                        catch (InvalidOperationException ex)
-                        {
-                            Log.ClientCertificateFromEnvironmentUnusable(_logger, ex.Message);
-                        }
-                    }
-
-                    _credential = (TokenCredential?)_certificateCredential ?? CreateDefaultCredential(_options);
-                }
+                _credential = _options.Credential;
             }
-            catch
+            else if (_options.ClientCertificate != null)
             {
-                // The certificate credential owns a loaded certificate; a constructor that throws
-                // returns no object for anyone to dispose.
-                _certificateCredential?.Dispose();
-                throw;
+                _certificateCredential = CertificateStoreCredential.Create(
+                    _options.ClientCertificate, BuildClientCertificateCredentialOptions(_options));
+                _credential = _certificateCredential;
             }
-        }
-
-        /// <summary>
-        /// Whether the environment convention may pick the identity. It stays out of the way when the
-        /// options already make a deliberate choice that the environment would override:
-        /// <c>ExcludeEnvironmentCredential</c> (opts out of taking an identity from the environment),
-        /// an explicit <c>ManagedIdentityClientId</c> (a managed identity was chosen). A <c>TenantId</c> that differs
-        /// from <c>AZURE_TENANT_ID</c> is handled by the credential package, which owns the environment
-        /// rules; it is passed to it.
-        /// </summary>
-        internal static bool ConventionApplies(KeyVaultReferenceResolverOptions options)
-        {
-            if (options.ExcludeEnvironmentCredential)
-                return false;
-
-            if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
-                return false;
-
-            return true;
+            else
+            {
+                _credential = CreateDefaultCredential(_options);
+            }
         }
 
         /// <summary>The credential in use, for tests that assert on which one was chosen.</summary>
