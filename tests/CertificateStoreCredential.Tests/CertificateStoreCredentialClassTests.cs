@@ -251,6 +251,48 @@ public class CertificateStoreCredentialClassTests
         Assert.Equal(StoreLocation.LocalMachine, oneStore.StoreLocation);
     }
 
+    [Theory]
+    [InlineData("another-tenant", false)]
+    [InlineData(Tenant, true)]
+    [InlineData("00000000-0000-0000-0000-000000000001 ", true)]
+    [InlineData(null, true)]
+    public void TryCreateFromEnvironment_RequiredTenant_MustMatchTheEnvironment(string? required, bool applies)
+    {
+        var clientId = Guid.NewGuid().ToString();
+        using var certificate = ValidCert("CN=" + clientId);
+
+        using var credential = CertificateStoreCredential.TryCreateFromEnvironment(
+            Env(("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", clientId)),
+            StoreHolding(certificate), DateTimeOffset.UtcNow, requiredTenantId: required);
+
+        Assert.Equal(applies, credential != null);
+    }
+
+    [Fact]
+    public void NotYetValidCertificate_IsReported_EvenBesideAnExpiredOne()
+    {
+        var clientId = Guid.NewGuid().ToString();
+        using var expired = Cert("CN=" + clientId, TimeSpan.FromDays(-60), TimeSpan.FromDays(-30));
+        using var future = Cert("CN=" + clientId, TimeSpan.FromDays(10), TimeSpan.FromDays(40));
+        var both = new X509Certificate2Collection();
+        both.Add(new X509Certificate2(expired.Export(X509ContentType.Pfx, "t"), "t"));
+        both.Add(new X509Certificate2(future.Export(X509ContentType.Pfx, "t"), "t"));
+
+        var settings = new CertificateStoreCredentialOptions(Tenant, clientId, "AB");
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => CertificateStoreLoader.Select(both, settings, DateTimeOffset.UtcNow));
+
+        Assert.Contains("not valid before", ex.Message);
+        Assert.Contains(future.NotBefore.ToUniversalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), ex.Message);
+    }
+
+    [Fact]
+    public void LiteralNullThumbprint_Compiles_AndMeansSearchByClientId()
+    {
+        var settings = new CertificateStoreCredentialOptions(Tenant, "client-1", null);
+        Assert.Null(settings.Thumbprint);
+    }
+
     [Fact]
     public void KeyThatCannotBeOpened_IsNotUsable_AndTheSearchReportsTheMissingKey()
     {

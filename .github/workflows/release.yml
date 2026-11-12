@@ -56,6 +56,16 @@ jobs:
           fi
           echo "Tag '$tag' matches package version '$version'."
 
+          # KeyVaultReferenceResolver.HashiCorp moves in lockstep with the resolver. Its csproj is
+          # edited by hand like the other, so a forgotten bump would publish an old HashiCorp (or
+          # skip it as a duplicate) under a new tag.
+          hashicorp="src/KeyVaultReferenceResolver.HashiCorp/KeyVaultReferenceResolver.HashiCorp.csproj"
+          hashicorp_version="$(grep -oPm1 '(?<=<Version>)[^<]+' "$hashicorp")"
+          if [ "$hashicorp_version" != "$version" ]; then
+            echo "::error::<Version> '$hashicorp_version' in $hashicorp does not match '$version' in $csproj; the two packages move in lockstep"
+            exit 1
+          fi
+
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -102,20 +112,38 @@ jobs:
           res=(./artifacts/KeyVaultReferenceResolver.[0-9]*.nupkg)
           dep_version="$(basename "${dep[0]}" .nupkg)"
           dep_version="${dep_version#CertificateStoreCredential.}"
-          range="$(unzip -p "${res[0]}" KeyVaultReferenceResolver.nuspec             | grep -oP '<dependency id="CertificateStoreCredential" version="\K[^"]+')"
+
+          nuspec="$(unzip -p "${res[0]}" KeyVaultReferenceResolver.nuspec)"
+          # Every dependency element for the package, whatever its attribute order; one distinct range.
+          ranges="$(printf '%s\n' "$nuspec" \
+            | { grep -oP '<dependency [^>]*id="CertificateStoreCredential"[^>]*>' || true; } \
+            | { grep -oP '\bversion="\K[^"]+' || true; } \
+            | sort -u)"
+          if [ -z "$ranges" ] || [ "$(printf '%s\n' "$ranges" | wc -l)" -ne 1 ]; then
+            echo "::error::Expected exactly one CertificateStoreCredential dependency range in the packed nuspec, found: '${ranges//$'\n'/ | }'"
+            exit 1
+          fi
+          range="$ranges"
           echo "CertificateStoreCredential $dep_version, resolver requires $range"
-          if ! [[ "$range" =~ ^\[([0-9.]+),\ *([0-9.]+)\)$ ]]; then
+
+          if ! [[ "$range" =~ ^\[([0-9A-Za-z.+-]+),\ *([0-9A-Za-z.+-]+)\)$ ]]; then
             echo "::error::Expected a bounded range [lower, upper) for CertificateStoreCredential, got '$range'"
             exit 1
           fi
           lower="${BASH_REMATCH[1]}"
           upper="${BASH_REMATCH[2]}"
-          if [ "$(printf '%s
-%s
-' "$lower" "$dep_version" | sort -V | head -n1)" != "$lower" ]              || [ "$(printf '%s
-%s
-' "$dep_version" "$upper" | sort -V | head -n1)" != "$dep_version" ]              || [ "$dep_version" = "$upper" ]; then
-            echo "::error::CertificateStoreCredential $dep_version is outside the range $range the resolver requires"
+
+          # Numeric part only (a prerelease label sorts wrongly under sort -V); equality with the
+          # lower bound is checked on the full version, since the range is built from it.
+          core() { printf '%s' "${1%%[-+]*}"; }
+          not_after() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+
+          if [ "$dep_version" != "$lower" ] && ! not_after "$(core "$lower")" "$(core "$dep_version")"; then
+            echo "::error::CertificateStoreCredential $dep_version is below the range $range the resolver requires"
+            exit 1
+          fi
+          if [ "$(core "$dep_version")" = "$(core "$upper")" ] || ! not_after "$(core "$dep_version")" "$(core "$upper")"; then
+            echo "::error::CertificateStoreCredential $dep_version is not below the upper bound of the range $range the resolver requires"
             exit 1
           fi
 
@@ -251,16 +279,39 @@ jobs:
       # (which depends on KeyVaultReferenceResolver). A glob would push in file-name order and could
       # publish a package before its dependency. --skip-duplicate makes a release that does not bump
       # CertificateStoreCredential skip it instead of failing.
+      #
+      # After each push, wait until nuget.org lists the version before pushing the next package.
+      # A push returns once the package is accepted, not once it is validated and indexed; a
+      # dependent package pushed in that window can be rejected, leaving the release half published.
       - name: Publish to NuGet.org
         run: |
           set -euo pipefail
+
+          wait_until_listed() {
+            local id version
+            id="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+            version="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+            for _ in $(seq 1 60); do
+              if curl -fsS "https://api.nuget.org/v3-flatcontainer/$id/index.json" 2>/dev/null | grep -qF "\"$version\""; then
+                echo "$1 $2 is listed on nuget.org."
+                return 0
+              fi
+              sleep 10
+            done
+            echo "::error::$1 $2 was not listed on nuget.org after 10 minutes; not pushing the packages that depend on it"
+            return 1
+          }
+
           for id in $PACKAGE_IDS; do
             files=(./artifacts/"$id".[0-9]*.nupkg)
             if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
               echo "::error::Expected exactly one package for $id in ./artifacts"
               exit 1
             fi
+            version="$(basename "${files[0]}" .nupkg)"
+            version="${version#"$id".}"
             dotnet nuget push "${files[0]}" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+            wait_until_listed "$id" "$version"
           done
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}

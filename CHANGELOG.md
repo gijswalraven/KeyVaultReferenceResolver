@@ -61,6 +61,14 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 - The `KeyVaultReferenceResolver` package now requires `CertificateStoreCredential` `[its own version, next
   major)` instead of a hardcoded range, and the release workflow checks the packed range and shares one package
   list between its steps.
+- `CertificateStoreCredential.TryCreateFromEnvironment(options, requiredTenantId)`: the new overload applies the
+  convention only when `AZURE_TENANT_ID` equals the tenant the caller already chose. The resolver passes its
+  `TenantId` through it, so the environment rules live in the credential package.
+- A certificate whose friendly name cannot be read no longer fails the store scan, and when expired and
+  not-yet-valid certificates are mixed the error names the not-yet-valid one instead of an old expiry date.
+- The release workflow also checks that `KeyVaultReferenceResolver.HashiCorp` has the resolver's version, handles
+  prerelease versions of `CertificateStoreCredential`, and waits for each package to be listed on nuget.org
+  before pushing the one that depends on it.
 - The solution file is now `KeyVaultReferenceResolver.slnx` (the XML solution format) instead of
   `KeyVaultReferenceResolver.sln`.
 - The release workflow publishes three packages in a fixed order, each after the ones it depends on.

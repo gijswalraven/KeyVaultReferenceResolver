@@ -78,6 +78,7 @@ namespace CertificateStoreCredentials
         /// <param name="getVariable">Reads an environment variable.</param>
         /// <param name="candidatesFor">Returns the certificates of the <c>My</c> store at a location. Takes ownership of nothing; the caller disposes what it returns.</param>
         /// <param name="now">The time the certificate validity is judged against.</param>
+        /// <param name="requiredTenantId">When given, the convention only applies if <c>AZURE_TENANT_ID</c> equals it.</param>
         /// <returns>
         /// The settings, or <c>null</c> when the tenant or client ID is missing, another authentication
         /// mechanism is configured, or no certificate carries the client ID. Those variables are
@@ -95,9 +96,10 @@ namespace CertificateStoreCredentials
         internal static CertificateStoreCredentialOptions? FromEnvironment(
             Func<string, string?> getVariable,
             Func<StoreLocation, X509Certificate2Collection> candidatesFor,
-            DateTimeOffset now)
+            DateTimeOffset now,
+            string? requiredTenantId = null)
         {
-            var found = FindFromEnvironment(getVariable, candidatesFor, now);
+            var found = FindFromEnvironment(getVariable, candidatesFor, now, requiredTenantId);
             if (found == null)
                 return null;
 
@@ -112,7 +114,8 @@ namespace CertificateStoreCredentials
         internal static Match? FindFromEnvironment(
             Func<string, string?> getVariable,
             Func<StoreLocation, X509Certificate2Collection> candidatesFor,
-            DateTimeOffset now)
+            DateTimeOffset now,
+            string? requiredTenantId = null)
         {
             var tenantId = getVariable(TenantIdVariable);
             var clientId = getVariable(ClientIdVariable);
@@ -124,6 +127,12 @@ namespace CertificateStoreCredentials
 
             tenantId = tenantId!.Trim();
             clientId = clientId!.Trim();
+
+            // A caller that has already chosen a tenant is not served by a service principal of
+            // another one named in the environment.
+            if (!string.IsNullOrWhiteSpace(requiredTenantId)
+                && !string.Equals(requiredTenantId!.Trim(), tenantId, StringComparison.OrdinalIgnoreCase))
+                return null;
 
             return FindByClientId(
                 tenantId, clientId, new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine }, candidatesFor, now);
@@ -274,7 +283,24 @@ namespace CertificateStoreCredentials
         private static bool Names(X509Certificate2 certificate, string clientId)
         {
             return certificate.Subject.IndexOf(clientId, StringComparison.OrdinalIgnoreCase) >= 0
-                   || certificate.FriendlyName.IndexOf(clientId, StringComparison.OrdinalIgnoreCase) >= 0;
+                   || FriendlyNameOf(certificate).IndexOf(clientId, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// The friendly name, or empty where the platform cannot supply one. Reading it throws on some
+        /// platforms, and one such certificate must not turn "the convention does not apply" into a
+        /// startup crash.
+        /// </summary>
+        private static string FriendlyNameOf(X509Certificate2 certificate)
+        {
+            try
+            {
+                return certificate.FriendlyName ?? string.Empty;
+            }
+            catch (Exception ex) when (ex is PlatformNotSupportedException || ex is CryptographicException)
+            {
+                return string.Empty;
+            }
         }
 
         /// <summary>
@@ -446,7 +472,10 @@ namespace CertificateStoreCredentials
                                         .FirstOrDefault();
                         if (chosen == null)
                         {
-                            if (withKey.All(c => new DateTimeOffset(c.NotAfter) <= now))
+                            // A certificate that is not valid yet is the one that will become usable, so
+                            // it is the cause to report even when older, expired ones sit beside it.
+                            var notYetValid = withKey.Where(c => new DateTimeOffset(c.NotAfter) > now).ToList();
+                            if (notYetValid.Count == 0)
                             {
                                 var notAfter = withKey.Max(c => c.NotAfter).ToUniversalTime();
                                 failure = $"The client certificate with thumbprint {settings.Thumbprint} in the " +
@@ -455,7 +484,7 @@ namespace CertificateStoreCredentials
                             }
                             else
                             {
-                                var notBefore = withKey.Min(c => c.NotBefore).ToUniversalTime();
+                                var notBefore = notYetValid.Min(c => c.NotBefore).ToUniversalTime();
                                 failure = $"The client certificate with thumbprint {settings.Thumbprint} in the " +
                                           $"{Describe(settings)} is not valid before {notBefore.ToString("u", CultureInfo.InvariantCulture)}. " +
                                           "Check the certificate's start date and this machine's clock.";

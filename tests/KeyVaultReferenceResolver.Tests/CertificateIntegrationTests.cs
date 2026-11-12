@@ -149,14 +149,12 @@ public class CertificateIntegrationTests
     }
 
     [Fact]
-    public void Convention_StaysOutOfTheWay_ForADeliberateManagedIdentityOrTenant()
+    public void Convention_StaysOutOfTheWay_ForADeliberateManagedIdentity()
     {
         WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", "client") }, () =>
         {
             Assert.True(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions()));
-            Assert.True(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { TenantId = Tenant.ToUpperInvariant() }));
             Assert.False(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { ManagedIdentityClientId = "mi-client" }));
-            Assert.False(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { TenantId = "another-tenant" }));
             Assert.False(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { ExcludeEnvironmentCredential = true }));
         });
     }

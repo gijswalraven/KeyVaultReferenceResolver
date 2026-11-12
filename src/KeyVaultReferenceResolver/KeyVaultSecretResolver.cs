@@ -78,7 +78,7 @@ namespace KeyVaultReferenceResolver
                     if (applyEnvironmentConvention && ConventionApplies(_options))
                     {
                         _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
-                            BuildClientCertificateCredentialOptions(_options));
+                            BuildClientCertificateCredentialOptions(_options), _options.TenantId);
                         if (_certificateCredential != null)
                             Log.ClientCertificateFromEnvironment(_logger);
                     }
@@ -99,8 +99,9 @@ namespace KeyVaultReferenceResolver
         /// Whether the environment convention may pick the identity. It stays out of the way when the
         /// options already make a deliberate choice that the environment would override:
         /// <c>ExcludeEnvironmentCredential</c> (opts out of taking an identity from the environment),
-        /// an explicit <c>ManagedIdentityClientId</c> (a managed identity was chosen), or a
-        /// <c>TenantId</c> that differs from <c>AZURE_TENANT_ID</c> (another tenant was chosen).
+        /// an explicit <c>ManagedIdentityClientId</c> (a managed identity was chosen). A <c>TenantId</c> that differs
+        /// from <c>AZURE_TENANT_ID</c> is handled by the credential package, which owns the environment
+        /// rules; it is passed to it.
         /// </summary>
         internal static bool ConventionApplies(KeyVaultReferenceResolverOptions options)
         {
@@ -109,13 +110,6 @@ namespace KeyVaultReferenceResolver
 
             if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
                 return false;
-
-            if (!string.IsNullOrWhiteSpace(options.TenantId))
-            {
-                var environmentTenant = Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
-                if (!string.Equals(options.TenantId!.Trim(), environmentTenant?.Trim(), StringComparison.OrdinalIgnoreCase))
-                    return false;
-            }
 
             return true;
         }

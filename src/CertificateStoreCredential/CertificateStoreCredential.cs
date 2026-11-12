@@ -77,8 +77,30 @@ namespace CertificateStoreCredentials
         /// <inheritdoc cref="TryCreateFromEnvironment()" path="/exception"/>
         public static CertificateStoreCredential? TryCreateFromEnvironment(ClientCertificateCredentialOptions? credentialOptions)
         {
+            return TryCreateFromEnvironment(credentialOptions, requiredTenantId: null);
+        }
+
+        /// <summary>
+        /// The same as <see cref="TryCreateFromEnvironment(ClientCertificateCredentialOptions)"/>, for a
+        /// caller that has already chosen a tenant.
+        /// </summary>
+        /// <param name="credentialOptions">
+        /// Authority host, additionally allowed tenants and retry behaviour, or <c>null</c> for the Azure
+        /// Identity defaults.
+        /// </param>
+        /// <param name="requiredTenantId">
+        /// When not <c>null</c> or blank, the convention applies only if <c>AZURE_TENANT_ID</c> equals it
+        /// (case-insensitively); otherwise the result is <c>null</c>.
+        /// </param>
+        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/returns"/>
+        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/exception"/>
+        public static CertificateStoreCredential? TryCreateFromEnvironment(
+            ClientCertificateCredentialOptions? credentialOptions,
+            string? requiredTenantId)
+        {
             return TryCreateFromEnvironment(
-                Environment.GetEnvironmentVariable, CertificateStoreLoader.ReadStore, DateTimeOffset.UtcNow, credentialOptions);
+                Environment.GetEnvironmentVariable, CertificateStoreLoader.ReadStore, DateTimeOffset.UtcNow,
+                credentialOptions, requiredTenantId);
         }
 
         /// <summary>
@@ -184,10 +206,11 @@ namespace CertificateStoreCredentials
             Func<string, string?> getVariable,
             Func<StoreLocation, X509Certificate2Collection> candidatesFor,
             DateTimeOffset now,
-            ClientCertificateCredentialOptions? credentialOptions = null)
+            ClientCertificateCredentialOptions? credentialOptions = null,
+            string? requiredTenantId = null)
         {
             // One read of the store: the search hands back the certificate it picked.
-            var found = CertificateStoreLoader.FindFromEnvironment(getVariable, candidatesFor, now);
+            var found = CertificateStoreLoader.FindFromEnvironment(getVariable, candidatesFor, now, requiredTenantId);
             if (found == null)
                 return null;
 

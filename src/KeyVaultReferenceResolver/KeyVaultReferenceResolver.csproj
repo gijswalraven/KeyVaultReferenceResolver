@@ -53,7 +53,7 @@
   <Target Name="NarrowCertificateStoreCredentialRange" AfterTargets="_GetProjectReferenceVersions">
     <ItemGroup>
       <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'CertificateStoreCredential'"
-                                      ProjectVersion="[%(ProjectVersion), $([MSBuild]::Add($([System.Version]::Parse('%(ProjectVersion)').Major), 1)).0.0)" />
+                                      ProjectVersion="[%(ProjectVersion), $([MSBuild]::Add($([System.Version]::Parse($([System.String]::Copy('%(ProjectVersion)').Split('-')[0])).Major), 1)).0.0)" />
     </ItemGroup>
   </Target>
 
