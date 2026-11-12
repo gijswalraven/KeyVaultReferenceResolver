@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
@@ -141,11 +142,18 @@ namespace CertificateStoreCredentials
         /// <summary>A certificate picked from a store, with the settings that name it. The holder owns the certificate.</summary>
         internal sealed class Match
         {
-            public Match(CertificateStoreCredentialOptions settings, X509Certificate2 certificate)
+            public Match(CertificateStoreCredentialOptions settings, X509Certificate2 certificate, bool keyUsable)
             {
                 Settings = settings;
                 Certificate = certificate;
+                KeyUsable = keyUsable;
             }
+
+            /// <summary>
+            /// Whether the private key was opened successfully during the search, so validating the match
+            /// does not open it (and perhaps prompt for a PIN) again.
+            /// </summary>
+            public bool KeyUsable { get; }
 
             public CertificateStoreCredentialOptions Settings { get; }
 
@@ -176,30 +184,34 @@ namespace CertificateStoreCredentials
                     X509Certificate2? kept = null;
                     try
                     {
-                        var matches = all.Where(c => Names(c, clientId)).ToList();
+                        // The key is opened once per matching certificate, here; the result travels with the match.
+                        var matches = all
+                            .Where(c => Names(c, clientId))
+                            .Select(c => new { Certificate = c, KeyUsable = HasUsablePrivateKey(c) })
+                            .ToList();
 
                         var usable = matches
-                            .Where(c => IsUsable(c, now))
-                            .OrderByDescending(c => c.NotAfter)
+                            .Where(m => m.KeyUsable && IsWithinValidity(m.Certificate, now))
+                            .OrderByDescending(m => m.Certificate.NotAfter)
                             .FirstOrDefault();
 
                         if (usable != null)
                         {
-                            kept = usable;
-                            return new Match(
-                                new CertificateStoreCredentialOptions(tenantId, clientId, usable.Thumbprint, location),
-                                usable);
+                            var settings = new CertificateStoreCredentialOptions(
+                                tenantId, clientId, usable.Certificate.Thumbprint, location);
+                            kept = usable.Certificate;
+                            return new Match(settings, usable.Certificate, keyUsable: true);
                         }
 
                         if (fallback == null)
                         {
-                            var best = matches.OrderByDescending(c => c.NotAfter).FirstOrDefault();
+                            var best = matches.OrderByDescending(m => m.Certificate.NotAfter).FirstOrDefault();
                             if (best != null)
                             {
-                                kept = best;
-                                fallback = new Match(
-                                    new CertificateStoreCredentialOptions(tenantId, clientId, best.Thumbprint, location),
-                                    best);
+                                var settings = new CertificateStoreCredentialOptions(
+                                    tenantId, clientId, best.Certificate.Thumbprint, location);
+                                kept = best.Certificate;
+                                fallback = new Match(settings, best.Certificate, best.KeyUsable);
                             }
                         }
                     }
@@ -333,11 +345,10 @@ namespace CertificateStoreCredentials
             }
         }
 
-        /// <summary>Has an accessible private key and is inside its validity window.</summary>
-        private static bool IsUsable(X509Certificate2 certificate, DateTimeOffset now)
+        /// <summary>Inside its validity window, with the clock skew tolerated at the start.</summary>
+        private static bool IsWithinValidity(X509Certificate2 certificate, DateTimeOffset now)
         {
-            return HasUsablePrivateKey(certificate)
-                   && new DateTimeOffset(certificate.NotBefore) <= now + ClockSkew
+            return new DateTimeOffset(certificate.NotBefore) <= now + ClockSkew
                    && new DateTimeOffset(certificate.NotAfter) > now;
         }
 
@@ -399,7 +410,7 @@ namespace CertificateStoreCredentials
         /// </summary>
         internal static X509Certificate2 LoadFound(Match found, DateTimeOffset now)
         {
-            return Select(new X509Certificate2Collection(found.Certificate), found.Settings, now);
+            return Select(new X509Certificate2Collection(found.Certificate), found.Settings, now, _ => found.KeyUsable);
         }
 
         /// <summary>
@@ -420,12 +431,26 @@ namespace CertificateStoreCredentials
             CertificateStoreCredentialOptions settings,
             DateTimeOffset now)
         {
-            var matching = new System.Collections.Generic.List<X509Certificate2>();
-            foreach (var certificate in all.Cast<X509Certificate2>())
+            var candidates = all.Cast<X509Certificate2>().ToList();
+            List<X509Certificate2> matching;
+            try
             {
-                if (string.Equals(certificate.Thumbprint, settings.Thumbprint, StringComparison.OrdinalIgnoreCase))
-                    matching.Add(certificate);
-                else
+                matching = candidates
+                    .Where(c => string.Equals(c.Thumbprint, settings.Thumbprint, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+            catch
+            {
+                // A certificate that cannot even report its thumbprint: release every handle read
+                // so far rather than leaving them to the finalizer.
+                foreach (var certificate in candidates)
+                    certificate.Dispose();
+                throw;
+            }
+
+            foreach (var certificate in candidates)
+            {
+                if (!matching.Any(m => ReferenceEquals(m, certificate)))
                     certificate.Dispose();
             }
 
@@ -442,8 +467,12 @@ namespace CertificateStoreCredentials
         internal static X509Certificate2 Select(
             X509Certificate2Collection candidates,
             CertificateStoreCredentialOptions settings,
-            DateTimeOffset now)
+            DateTimeOffset now,
+            Func<X509Certificate2, bool>? hasUsableKey = null)
         {
+            // Each candidate's key is opened once. A caller that already did so passes the answer.
+            hasUsableKey = hasUsableKey ?? HasUsablePrivateKey;
+
             var all = candidates.Cast<X509Certificate2>().ToList();
             X509Certificate2? chosen = null;
             string? failure = null;
@@ -458,7 +487,7 @@ namespace CertificateStoreCredentials
                 }
                 else
                 {
-                    var withKey = all.Where(HasUsablePrivateKey).ToList();
+                    var withKey = all.Where(hasUsableKey).ToList();
                     if (withKey.Count == 0)
                     {
                         failure = $"The client certificate with thumbprint {settings.Thumbprint} in the " +
@@ -467,7 +496,7 @@ namespace CertificateStoreCredentials
                     }
                     else
                     {
-                        chosen = withKey.Where(c => IsUsable(c, now))
+                        chosen = withKey.Where(c => IsWithinValidity(c, now))
                                         .OrderByDescending(c => c.NotAfter)
                                         .FirstOrDefault();
                         if (chosen == null)

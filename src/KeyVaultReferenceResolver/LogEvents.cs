@@ -39,6 +39,9 @@ namespace KeyVaultReferenceResolver
         /// <summary>Numeric ID of <see cref="ClientCertificateFromEnvironment"/>.</summary>
         public const int ClientCertificateFromEnvironmentId = 1007;
 
+        /// <summary>Numeric ID of <see cref="ClientCertificateFromEnvironmentUnusable"/>.</summary>
+        public const int ClientCertificateFromEnvironmentUnusableId = 1008;
+
         /// <summary>Numeric ID of <see cref="SecretExpired"/>.</summary>
         public const int SecretExpiredId = 1101;
 
@@ -71,6 +74,12 @@ namespace KeyVaultReferenceResolver
         /// instead of the default credential chain. Information.
         /// </summary>
         public static readonly EventId ClientCertificateFromEnvironment = new EventId(ClientCertificateFromEnvironmentId, nameof(ClientCertificateFromEnvironment));
+
+        /// <summary>
+        /// A store certificate names AZURE_CLIENT_ID but cannot be used (expired, not yet valid, or no
+        /// accessible private key), so the resolver fell back to the default credential chain. Warning.
+        /// </summary>
+        public static readonly EventId ClientCertificateFromEnvironmentUnusable = new EventId(ClientCertificateFromEnvironmentUnusableId, nameof(ClientCertificateFromEnvironmentUnusable));
 
         /// <summary>A secret past its ExpiresOn was used anyway. Warning.</summary>
         public static readonly EventId SecretExpired = new EventId(SecretExpiredId, nameof(SecretExpired));

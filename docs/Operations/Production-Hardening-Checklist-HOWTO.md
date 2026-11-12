@@ -114,6 +114,7 @@ On a healthy start, with Information logging for the library:
 | 1004 | `ResolutionSummary` | Information | `Resolved N of N`, with N equal on both sides |
 | 1002 | `SecretRead` | Information | one per secret, naming the vault but not the secret |
 | 1007 | `ClientCertificateFromEnvironment` | Information | only on a host that uses the store-certificate convention; absent otherwise |
+| 1008 | `ClientCertificateFromEnvironmentUnusable` | Warning | a store certificate names `AZURE_CLIENT_ID` but is expired or unusable and the default chain took over; alert on it |
 
 Alert on these:
 

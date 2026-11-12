@@ -252,7 +252,7 @@ public class CertificateIntegrationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Convention_IsAppliedByTheExtension_AndFailsAtSetupWhenUnusable(bool expired)
+    public void Convention_IsAppliedByTheExtension_AndFallsBackWhenUnusable(bool expired)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -266,9 +266,14 @@ public class CertificateIntegrationTests
             {
                 if (expired)
                 {
-                    var ex = Assert.Throws<InvalidOperationException>(
-                        () => WithReference(new ConfigurationBuilder()).AddKeyVaultReferenceResolver());
-                    Assert.Contains("expired", ex.Message);
+                    // A stale certificate that merely names AZURE_CLIENT_ID (also set for a user-assigned
+                    // managed identity) must not stop the application: warn and use the default chain.
+                    var logger = new RecordingLogger();
+                    using var resolver = new KeyVaultSecretResolver(null, logger, applyEnvironmentConvention: true);
+                    Assert.IsNotType<CertificateStoreCredential>(resolver.Credential);
+                    var warning = Assert.Single(logger.Entries, e => e.EventId.Id == LogEvents.ClientCertificateFromEnvironmentUnusableId);
+                    Assert.Equal(LogLevel.Warning, warning.Level);
+                    Assert.Contains("expired", warning.Text);
                 }
                 else
                 {

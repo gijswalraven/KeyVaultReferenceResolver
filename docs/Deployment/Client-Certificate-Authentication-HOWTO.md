@@ -173,7 +173,7 @@ Rules worth knowing:
 | Situation | Result |
 | --- | --- |
 | Matching certificate found and usable | It is used. An information record (event 1007) says so. |
-| Matching certificate found but expired, not yet valid, or no private key | Setup throws an `InvalidOperationException` naming the reason. |
+| Matching certificate found but expired, not yet valid, or no private key | A warning (event 1008) names the reason and the default credential chain is used. With the explicit `ClientCertificate` form, setup throws an `InvalidOperationException` naming the reason instead. |
 | No matching certificate | Convention does not apply; the default credential chain is used as before. |
 | `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set | Convention stays out of the way. |
 | `options.Credential` or `options.ClientCertificate` is set | The explicit setting wins. |
@@ -282,7 +282,7 @@ Remove-Item "Cert:\CurrentUser\My\<old thumbprint>"
 
 With the explicit form, update the thumbprint in the application's configuration at step 3.
 
-Put the expiry date in a calendar. An expired certificate stops the application at startup with a clear message, by design, but that is still an outage.
+Put the expiry date in a calendar. With the explicit form, an expired certificate stops the application at startup with a clear message, by design, but that is still an outage. With the convention it only logs a warning (event 1008) and the default chain takes over, which may fail later with a less specific error.
 
 ## Troubleshooting
 

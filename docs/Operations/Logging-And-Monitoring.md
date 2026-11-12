@@ -109,6 +109,7 @@ The HashiCorp package currently calls `ILogger` extension methods directly with 
 | 1005 | `ResolverNotLastSource` | Error | `{Count} configuration source(s) were registered after the Key Vault reference resolver. ...` | `Count` |
 | 1006 | `UnresolvedReference` | Error | `Configuration key '{ConfigKey}' still holds an unresolved Key Vault reference` | `ConfigKey` |
 | 1007 | `ClientCertificateFromEnvironment` | Information | `Authenticating with a store client certificate found for AZURE_CLIENT_ID` | none |
+| 1008 | `ClientCertificateFromEnvironmentUnusable` | Warning | `A store client certificate names AZURE_CLIENT_ID but cannot be used, so the default credential chain is used instead: {Reason}` | `Reason` |
 | 1101 | `SecretExpired` | Warning | `Secret from {VaultUri} expired at {ExpiresOn} and is being used anyway` | `VaultUri`, `ExpiresOn` |
 | 1102 | `SecretExpiringSoon` | Warning | `Secret from {VaultUri} expires at {ExpiresOn}, within the {Threshold} warning threshold` | `VaultUri`, `ExpiresOn`, `Threshold` |
 | 1103 | `SecretNotYetValid` | Warning | `Secret from {VaultUri} is not valid until {NotBefore} but is being used now` | `VaultUri`, `NotBefore` |

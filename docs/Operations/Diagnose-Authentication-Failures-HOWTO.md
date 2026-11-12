@@ -68,7 +68,7 @@ The library chooses the credential in a fixed order. The first one that applies 
 
 Two consequences:
 
-- **No event 1007 does not mean the certificate is broken.** It means rows 1 to 3 did not apply and the default chain ran. If you expected the convention, check each condition in row 3. In particular, the convention silently does nothing when no certificate matches, or when the store cannot be opened.
+- **No event 1007 does not mean the certificate is broken.** It means rows 1 to 3 did not apply and the default chain ran. If you expected the convention, check each condition in row 3. In particular, the convention silently does nothing when no certificate matches, or when the store cannot be opened. A certificate that matches but is unusable is not silent: event 1008 (Warning) gives the reason.
 - **The library does not log which credential of the default chain succeeded.** Enable Azure SDK logging (`AzureEventSourceListener`) to see it, and be aware that these logs include request URIs, which contain secret names. See the `ClientOptions` remarks in [Configuration-Reference.md](../Deployment/Configuration-Reference.md).
 
 When an option appears to have no effect, check row 1 first: `options.Credential` silently makes `ManagedIdentityClientId`, `TenantId`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` inert.
@@ -150,6 +150,7 @@ An unreachable Entra ID or vault ends as a `TimeoutException` (per secret) or a 
 | 1005 | `ResolverNotLastSource` | Error | Sources were registered after the resolver and could not be inspected. |
 | 1006 | `UnresolvedReference` | Error | A key still holds a reference. |
 | 1007 | `ClientCertificateFromEnvironment` | Information | The environment convention selected a store certificate. |
+| 1008 | `ClientCertificateFromEnvironmentUnusable` | Warning | A certificate names `AZURE_CLIENT_ID` but is expired, not yet valid or has no accessible private key; the default chain was used. The message gives the reason. |
 | 1001 | `SecretResolved` | Debug | Names the secret. Local diagnosis only. |
 
 ## Step 6: Confirm from the machine

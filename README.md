@@ -181,7 +181,9 @@ picked up without changing anything. An information record (event 1007) notes th
   `AZURE_CLIENT_ID` are set for other reasons too (a user-assigned managed identity uses
   `AZURE_CLIENT_ID`), so without a matching certificate the default credential chain is used as before.
 - If a certificate names the client but is unusable (expired, not yet valid, no accessible private key),
-  setup throws with that specific reason instead of falling back.
+  the resolver logs a warning with that reason (event 1008) and uses the default credential chain,
+  because `AZURE_CLIENT_ID` is also set for managed identities and a stale certificate must not stop
+  the application. An explicit `ClientCertificate` is required and does throw.
 - It stays out of the way when `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`,
   `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set, when `Credential` or
   `ClientCertificate` is set, when `ManagedIdentityClientId` is set or `TenantId` differs from

@@ -49,6 +49,12 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ### Changed
 
+- **The convention no longer throws on an unusable certificate:** one that names `AZURE_CLIENT_ID` but is expired, not
+  yet valid or has no accessible private key is logged as a warning (new event 1008) and the default credential chain
+  is used. `AZURE_CLIENT_ID` is also set for user-assigned managed identities, so a stale certificate must not stop
+  such an application. An explicit `ClientCertificate` is required and still throws.
+- The private key is opened once per candidate certificate, not once per check, and certificate handles are released
+  if the store scan throws part-way.
 - A store certificate's private key is probed when it is picked (`HasPrivateKey` alone is true even when the
   key's ACL denies the account), so an inaccessible key fails at creation with the specific reason.
 - `CertificateStoreCredential.Dispose()` waits for token requests already in progress before it releases the

@@ -77,10 +77,21 @@ namespace KeyVaultReferenceResolver
                 {
                     if (applyEnvironmentConvention && ConventionApplies(_options))
                     {
-                        _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
-                            BuildClientCertificateCredentialOptions(_options), _options.TenantId);
-                        if (_certificateCredential != null)
-                            Log.ClientCertificateFromEnvironment(_logger);
+                        // The convention is opt-in by coincidence: AZURE_CLIENT_ID is also set for
+                        // user-assigned managed identities, so a stale certificate that happens to name
+                        // it must not take the application down. Unlike an explicit ClientCertificate,
+                        // which is required, it warns and leaves the default chain in charge.
+                        try
+                        {
+                            _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
+                                BuildClientCertificateCredentialOptions(_options), _options.TenantId);
+                            if (_certificateCredential != null)
+                                Log.ClientCertificateFromEnvironment(_logger);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            Log.ClientCertificateFromEnvironmentUnusable(_logger, ex.Message);
+                        }
                     }
 
                     _credential = (TokenCredential?)_certificateCredential ?? CreateDefaultCredential(_options);

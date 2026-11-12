@@ -287,12 +287,21 @@ jobs:
         run: |
           set -euo pipefail
 
+          # nuget.org lists normalized versions: lower case, no build metadata, and a zero fourth
+          # part dropped (1.0.0.0 is listed as 1.0.0).
+          normalize_version() {
+            printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/\+.*$//; s/^([0-9]+\.[0-9]+\.[0-9]+)\.0(-|$)/\1\2/'
+          }
+
           wait_until_listed() {
-            local id version
+            local id version listing
             id="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-            version="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+            version="$(normalize_version "$2")"
             for _ in $(seq 1 60); do
-              if curl -fsS "https://api.nuget.org/v3-flatcontainer/$id/index.json" 2>/dev/null | grep -qF "\"$version\""; then
+              # The index is read in full before grep looks at it: with `curl | grep -q`, grep
+              # exits on the first match, curl gets SIGPIPE (exit 23) and pipefail calls it a failure.
+              listing="$(curl -fsS "https://api.nuget.org/v3-flatcontainer/$id/index.json" 2>/dev/null || true)"
+              if grep -qF "\"$version\"" <<< "$listing"; then
                 echo "$1 $2 is listed on nuget.org."
                 return 0
               fi
