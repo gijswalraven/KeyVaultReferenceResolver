@@ -10,6 +10,11 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+## [2.1.0]
+
+`KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` 2.1.0, with the new
+`CertificateStoreCredential` 1.0.0. HashiCorp itself has no changes; it moves in lockstep.
+
 ### Added
 
 - **New package `CertificateStoreCredential` 1.0.0**, which `KeyVaultReferenceResolver` now depends on
@@ -519,7 +524,8 @@ resolution path in both packages.
 - Initial release: resolve `@Microsoft.KeyVault(SecretUri=...)` references in
   `Microsoft.Extensions.Configuration` anywhere, not just Azure App Service.
 
-[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.3.0...v1.4.0

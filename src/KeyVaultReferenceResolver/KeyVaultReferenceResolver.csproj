@@ -8,8 +8,8 @@
 
     <!-- Package Information -->
     <PackageId>KeyVaultReferenceResolver</PackageId>
-    <Version>2.0.1</Version>
-    <PackageReleaseNotes>Patch release. Fixes ObjectDisposedException: 'ConfigurationManager' when AddKeyVaultReferenceResolver is called on Host.CreateApplicationBuilder().Configuration or WebApplication.CreateBuilder().Configuration - the default host builder of any .NET 6+ application. No API or behaviour changes otherwise.</PackageReleaseNotes>
+    <Version>2.1.0</Version>
+    <PackageReleaseNotes>Minor release. Adds authentication with a client certificate from the Windows certificate store: set options.ClientCertificate, or set AZURE_TENANT_ID and AZURE_CLIENT_ID and name a store certificate after the client ID. The certificate logic is the new CertificateStoreCredential package, which this package now depends on. No change unless a certificate that names AZURE_CLIENT_ID exists in the store.</PackageReleaseNotes>
     <Authors>Gijs Walraven</Authors>
     <Company>Gijs Walraven</Company>
     <Description>Resolve Azure Key Vault references in Microsoft.Extensions.Configuration using both @Microsoft.KeyVault(SecretUri=...) and @Microsoft.KeyVault(VaultName=...;SecretName=...) formats. Works locally, in Docker, Kubernetes, and anywhere - not just Azure App Service.</Description>

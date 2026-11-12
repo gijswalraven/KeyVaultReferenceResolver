@@ -8,8 +8,8 @@
 
     <!-- Package Information -->
     <PackageId>KeyVaultReferenceResolver.HashiCorp</PackageId>
-    <Version>2.0.1</Version>
-    <PackageReleaseNotes>Patch release. Fixes ObjectDisposedException: 'ConfigurationManager' when AddHashiCorpVaultResolver is called on Host.CreateApplicationBuilder().Configuration or WebApplication.CreateBuilder().Configuration - the default host builder of any .NET 6+ application. No API or behaviour changes otherwise.</PackageReleaseNotes>
+    <Version>2.1.0</Version>
+    <PackageReleaseNotes>Minor release, versioned in lockstep with KeyVaultReferenceResolver 2.1.0. No changes to this package.</PackageReleaseNotes>
     <Authors>Gijs Walraven</Authors>
     <Company>Gijs Walraven</Company>
     <Description>HashiCorp Vault support for KeyVaultReferenceResolver. Resolve secrets from HashiCorp Vault in Microsoft.Extensions.Configuration using @HashiCorp.Vault(...) or hashicorp:// URI format. Supports Token, AppRole, and Kubernetes authentication.</Description>
