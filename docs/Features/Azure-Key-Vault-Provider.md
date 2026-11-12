@@ -43,10 +43,22 @@ public KeyVaultSecretResolver(
 {
     _options = options ?? new KeyVaultReferenceResolverOptions();
     _options.Validate();
-    _credential = _options.Credential ?? CreateDefaultCredential(_options);
+    // Precedence: Credential, then a store certificate (options.ClientCertificate, or one the
+    // environment convention found), then the default chain.
+    if (_options.Credential != null)
+        _credential = _options.Credential;
+    else if ((_options.ClientCertificate ?? conventionCertificate) is { } settings)
+    {
+        _clientCertificate = CertificateStoreLoader.Load(settings);   // validates; throws if unusable
+        _credential = CertificateStoreLoader.CreateCredential(settings, _clientCertificate, _options);
+    }
+    else
+        _credential = CreateDefaultCredential(_options);
     _logger = logger ?? NullLogger.Instance;
 }
 ```
+
+The public constructor delegates to an internal one that also receives the certificate the environment convention found, if any. When a store certificate is selected, `CertificateStoreLoader.Load` finds and validates it (missing, no private key, expired, not yet valid all throw `InvalidOperationException`) and the resolver keeps the `X509Certificate2` for the credential's lifetime. See [Vault-Authentication-Methods.md](Vault-Authentication-Methods.md).
 
 Both parameters are optional, so `new KeyVaultSecretResolver()` is valid and gives defaults throughout. `Validate()` runs immediately, so a negative `Timeout` or a `MaxConcurrency` of zero fails at construction with an `ArgumentOutOfRangeException` naming the property, rather than at the first read.
 
@@ -211,7 +223,7 @@ Blocking sync-over-async, required by `ISecretResolver` and ultimately by the sy
 
 `InvalidateCache(string? secretUri = null)` removes one entry or clears the lot. `ResolveSecretAsync(uri, forceRefresh: true)` bypasses and replaces an entry. Neither changes values already in `IConfiguration` — see [Secret-Caching-And-Rotation.md](../Features/Secret-Caching-And-Rotation.md).
 
-`Dispose()` follows the standard pattern with a `protected virtual Dispose(bool)` and clears both dictionaries:
+`Dispose()` follows the standard pattern with a `protected virtual Dispose(bool)`. It clears both dictionaries and disposes the store certificate, if one was loaded:
 
 ```csharp
 // Resolved secrets are plain managed strings and cannot be zeroed, but dropping the
@@ -234,6 +246,10 @@ _expiresAt = ttl == System.Threading.Timeout.InfiniteTimeSpan
 ```
 
 `IsExpired` compares against `DateTimeOffset.UtcNow`. A struct rather than a class so entries are stored inline in the `ConcurrentDictionary` buckets with no per-entry allocation.
+
+### CertificateStoreLoader
+
+Internal. Finds the certificate (by thumbprint, or by the client ID in its subject or friendly name), validates it, discovers it from `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` for the environment convention, and builds the `ClientCertificateCredential`. Selection is a pure function of the candidate certificates, so the rules are tested with in-memory certificates and no store access.
 
 ### CreateDefaultCredential
 

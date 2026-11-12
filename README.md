@@ -205,13 +205,18 @@ builder.AddKeyVaultReferenceResolver(o =>
 });
 ```
 
-The certificate is searched by thumbprint in the `My` store of `CurrentUser` (or
+With a thumbprint, the certificate is searched in the `My` store of `CurrentUser` (or
 `LocalMachine`). Pasting the thumbprint from the Certificates snap-in works as is: spaces,
-colons, hyphens and the invisible U+200E it adds are removed.
+colons, hyphens and the invisible U+200E it adds are removed. Without a thumbprint it is the
+certificate whose subject or friendly name contains the client ID, as in the convention above.
 
 The certificate is checked when the resolver is created, not on the first vault call. An
-`InvalidOperationException` names the thumbprint, store and process user when the certificate is
-missing, has no accessible private key, has expired (with the end date), or is not valid yet (with the start date, allowing 5 minutes of clock skew).
+`InvalidOperationException` names the thumbprint (or client ID), store and process user when the
+certificate is missing, has no accessible private key, has expired (with the end date), or is not
+valid yet (with the start date, allowing 5 minutes of clock skew).
+
+Step-by-step setup, including creating the certificate: see
+[Client-Certificate-Authentication-HOWTO.md](docs/Deployment/Client-Certificate-Authentication-HOWTO.md).
 
 - `options.Credential`, when set, always wins over `ClientCertificate`.
 - With `ClientCertificate` set, `AllowDeveloperCredentials`, `ExcludeEnvironmentCredential`,

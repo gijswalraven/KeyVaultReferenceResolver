@@ -23,7 +23,7 @@ graph LR
     H --> I["ISecretResolver<br/>per URI"]
     I --> J["resolved<br/>uri to value or null"]
     J --> K["SubstituteReferences<br/>per referencing key"]
-    K --> L["AddInMemoryCollection"]
+    K --> L["ResolvedSecretsSource"]
     L --> M["ResolutionSummary<br/>log record"]
     H --> N{"ThrowOnResolveFailure<br/>and any failure?"}
     N -->|"yes"| O["throw first<br/>ResolutionException"]
@@ -36,6 +36,10 @@ First, discovery is completely separated from fetching. The discovery pass produ
 Second, the failure path is not an escape hatch. Whether or not `ThrowOnResolveFailure` is set, a failed URI is recorded as `null` in the resolved map, and any configuration value containing it becomes `null`. The option controls only whether an exception is *also* thrown. There is no configuration in which the application receives the literal reference string as its value.
 
 ## How It Works
+
+### Before Stage 1 — Choose the credential
+
+When no credential or `ClientCertificate` is set and `ExcludeEnvironmentCredential` is `false`, the options-taking `AddKeyVaultReferenceResolver` overload asks `CertificateStoreLoader.FromEnvironment` whether `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set and a store certificate names the client ID. If so, that certificate is passed to the resolver (log event 1007); otherwise nothing changes. A pipeline with no references still builds the resolver, so an unusable certificate fails here, before any configuration is scanned.
 
 ### Stage 1 — Probe the configuration under construction
 
@@ -127,7 +131,9 @@ That all-or-nothing rule is the point. A connection string with two embedded ref
 ### Stage 6 — Overlay and summarise
 
 ```csharp
-builder.AddInMemoryCollection(resolvedValues);
+// Not AddInMemoryCollection: this source can see, at Build time, whether anything was
+// registered after it and would override the resolved secrets.
+builder.Add(new ResolvedSecretsSource(resolvedValues, logger));
 
 var succeeded = resolvedValues.Count(pair => pair.Value != null);
 Log.ResolutionSummary(logger, succeeded, resolvedValues.Count);
@@ -189,7 +195,7 @@ Anyone changing one of these two classes should check whether the other needs th
 
 ## Integration Points
 
-- **`IConfigurationBuilder`** — both the input (sources to scan) and the output (`AddInMemoryCollection`). The pipeline mutates the builder and returns it for chaining.
+- **`IConfigurationBuilder`** — both the input (sources to scan) and the output (the internal `ResolvedSecretsSource`). The pipeline mutates the builder and returns it for chaining.
 - **`ISecretResolver`** — the only outbound dependency of the pipeline itself. Everything vault-specific is behind it, which is why `FakeSecretResolver` can exercise the whole pipeline with no network.
 - **`ILogger`** — four event IDs per package: `SecretResolved` (Debug), `ResolutionFailed` (Error), `ResolutionSummary` (Information), plus the resolver-level `SecretRead` (Information). Defaults to `NullLogger.Instance`.
 - **Options validation** — `options.Validate()` is called at the top of the pipeline, before any work, so a bad `MaxConcurrency` or negative timeout fails fast with an `ArgumentOutOfRangeException` naming the property.

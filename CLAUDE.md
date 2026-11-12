@@ -44,7 +44,7 @@ The library follows a simple provider pattern:
 
 1. Extension method builds a temp config from existing sources
 2. Iterates all config values, matching against `@Microsoft\.KeyVault\(SecretUri=(?<uri>https://[^)]+)\)`
-3. Resolved secrets are added via `AddInMemoryCollection()`, overriding the original references
+3. Resolved secrets are added through the internal `ResolvedSecretsSource` (a configuration source that behaves like `AddInMemoryCollection()` but also inspects sources registered after it), overriding the original references
 4. `KeyVaultSecretResolver` caches both `SecretClient` instances (per vault) and resolved values
 
 ## Key Vault Reference Format

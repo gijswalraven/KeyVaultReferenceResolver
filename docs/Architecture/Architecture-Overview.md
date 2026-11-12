@@ -23,7 +23,7 @@ graph LR
     E --> H["FakeSecretResolver<br/>test project only"]
     F --> I["Azure Key Vault"]
     G --> J["HashiCorp Vault"]
-    C --> K["AddInMemoryCollection<br/>resolved values"]
+    C --> K["ResolvedSecretsSource<br/>resolved values"]
     K --> L["IConfigurationRoot<br/>consumed by the app"]
 ```
 
@@ -59,7 +59,7 @@ Otherwise the distinct URIs are fetched through the `ISecretResolver` with bound
 
 ### Consumption
 
-Resolved values are handed to `AddInMemoryCollection()` as a `Dictionary<string, string?>`. A key whose secret could not be fetched maps to `null`, never to the literal reference string. The application therefore sees a missing value rather than a plausible-looking credential, regardless of whether `ThrowOnResolveFailure` is on.
+Resolved values are handed to an internal `ResolvedSecretsSource` as a `Dictionary<string, string?>`. It acts like `AddInMemoryCollection()`, but at build time it also inspects the sources registered after it, and throws `KeyVaultReferenceResolutionException` if one still carries an unresolved reference. A key whose secret could not be fetched maps to `null`, never to the literal reference string. The application therefore sees a missing value rather than a plausible-looking credential, regardless of whether `ThrowOnResolveFailure` is on.
 
 ## Key Components
 
@@ -75,7 +75,7 @@ Five overloads exist, differing only in how options and the resolver are supplie
 
 ### KeyVaultSecretResolver
 
-The Azure implementation, in [KeyVaultSecretResolver.cs](../../src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs). It parses and validates secret URIs, constructs and caches one `SecretClient` per vault host, builds a hardened `DefaultAzureCredential` when the caller has not supplied one, enforces the per-secret timeout, checks the secret's validity period, caches the value, and maps `RequestFailedException` statuses onto messages an operator can act on. Detail in [Azure-Key-Vault-Provider.md](../Features/Azure-Key-Vault-Provider.md).
+The Azure implementation, in [KeyVaultSecretResolver.cs](../../src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs). It parses and validates secret URIs, constructs and caches one `SecretClient` per vault host, builds a hardened `DefaultAzureCredential` (or a store-certificate `ClientCertificateCredential`, see `CertificateStoreLoader`) when the caller has not supplied one, enforces the per-secret timeout, checks the secret's validity period, caches the value, and maps `RequestFailedException` statuses onto messages an operator can act on. Detail in [Azure-Key-Vault-Provider.md](../Features/Azure-Key-Vault-Provider.md).
 
 ### HashiCorpVaultSecretResolver
 
@@ -107,7 +107,7 @@ Each package has one options class and one static `LogEvents` class. The options
 
 The library sits between the configuration stack and two secret stores, and takes a hard dependency on very little else.
 
-- **Microsoft.Extensions.Configuration** — the only structural dependency. The library extends `IConfigurationBuilder` and uses `AddInMemoryCollection` as its output channel.
+- **Microsoft.Extensions.Configuration** — the only structural dependency. The library extends `IConfigurationBuilder` and writes its output through an in-memory configuration source (`ResolvedSecretsSource`) as its output channel.
 - **Microsoft.Extensions.Logging.Abstractions** — optional `ILogger`, defaulting to `NullLogger.Instance`. Abstractions only, so no logging implementation is imposed.
 - **Azure.Identity** — supplies `DefaultAzureCredential` and the `TokenCredential` type the caller can override with anything, including a federated or workload identity credential.
 - **Azure.Security.KeyVault.Secrets** — `SecretClient`. The caller can pass `SecretClientOptions` for retry, proxy, transport and service-version control; the library forces `Diagnostics.IsLoggingContentEnabled = false` on whatever it is given.
