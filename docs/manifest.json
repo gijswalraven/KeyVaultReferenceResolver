@@ -213,6 +213,107 @@
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
       "prompt": "Keep the HOWTO in step with the code: app registration, creating the certificate, the AZURE_TENANT_ID/AZURE_CLIENT_ID convention and its rules, the explicit ClientCertificate form, rotation and troubleshooting messages."
+    },
+    {
+      "name": "Certificate-Rotation-And-Expiry-Monitoring-HOWTO",
+      "folder": "Operations",
+      "description": "Rotate the store certificate across VMs and monitor its expiry with scripts",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/CertificateStoreLoader.cs",
+        "docs/Deployment/Client-Certificate-Authentication-HOWTO.md"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Keep the rotation and expiry-check scripts in step with the certificate rules in CertificateStoreLoader; the library emits no expiry log, so say so."
+    },
+    {
+      "name": "Scheduled-Task-Deployment-HOWTO",
+      "folder": "Deployment",
+      "description": "Deploy the console consumer as a Windows Scheduled Task: run-as account, environment, failure behaviour",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs",
+        "src/KeyVaultReferenceResolver/CertificateStoreLoader.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Run-as account and store choice, where AZURE_TENANT_ID/AZURE_CLIENT_ID go, startup failure and exit codes, timeouts, register-resolver-last."
+    },
+    {
+      "name": "Diagnose-Authentication-Failures-HOWTO",
+      "folder": "Operations",
+      "description": "Decision flow from an authentication symptom to its cause",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver/CertificateStoreLoader.cs",
+        "src/KeyVaultReferenceResolver/LogEvents.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Follow the real credential order and the real exception messages; startup failures are wrapped in KeyVaultReferenceResolutionException."
+    },
+    {
+      "name": "Managed-Identity-HOWTO",
+      "folder": "Deployment",
+      "description": "Use a system- or user-assigned managed identity or AKS workload identity",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "ManagedIdentityClientId, RBAC role, ExcludeEnvironmentCredential and the interaction with the store-certificate convention."
+    },
+    {
+      "name": "Local-Development-Without-Secrets-HOWTO",
+      "folder": "Development",
+      "description": "Develop locally with developer credentials against a dev vault",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "README.md"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "AllowDeveloperCredentials scoped to a dev vault, the IsDevelopment pattern, keeping production URIs out of dev configuration."
+    },
+    {
+      "name": "Production-Hardening-Checklist-HOWTO",
+      "folder": "Operations",
+      "description": "Checklist of the options that harden a production deployment",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
+        "src/KeyVaultReferenceResolver/LogEvents.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Each item with its reason and exact option; link to Security-Model rather than restating it."
+    },
+    {
+      "name": "Pick-Up-Rotated-Secrets-HOWTO",
+      "folder": "Operations",
+      "description": "How an application picks up a rotated secret: cache, forceRefresh, restart",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "src/KeyVaultReferenceResolver/ResolvedSecretsSource.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Configuration values are resolved once; document the patterns that do work and do not claim a reload mechanism."
+    },
+    {
+      "name": "Migrate-From-App-Service-References-HOWTO",
+      "folder": "Deployment",
+      "description": "Move from App Service Key Vault references or AddAzureKeyVault to this library",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs",
+        "docs/Features/Reference-Formats.md"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Supported formats, behavioural differences and a verification checklist; mark Microsoft-side claims to verify."
+    },
+    {
+      "name": "Unit-Testing-With-ISecretResolver-HOWTO",
+      "folder": "Development",
+      "description": "Unit test an application that uses the resolver with its own fake ISecretResolver",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/ISecretResolver.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "FakeSecretResolver is never packed; show a consumer-owned fake, xUnit without FluentAssertions."
     }
   ]
 }
