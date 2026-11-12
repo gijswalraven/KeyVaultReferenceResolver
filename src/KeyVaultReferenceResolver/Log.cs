@@ -16,6 +16,18 @@ namespace KeyVaultReferenceResolver
     internal static partial class Log
     {
         [LoggerMessage(
+            EventId = LogEvents.ClientCertificateFromEnvironmentId,
+            Level = LogLevel.Information,
+            Message = "Authenticating with a store client certificate found for AZURE_CLIENT_ID")]
+        public static partial void ClientCertificateFromEnvironment(ILogger logger);
+
+        [LoggerMessage(
+            EventId = LogEvents.ClientCertificateFromEnvironmentUnusableId,
+            Level = LogLevel.Warning,
+            Message = "A store client certificate names AZURE_CLIENT_ID but cannot be used, so the default credential chain is used instead: {Reason}")]
+        public static partial void ClientCertificateFromEnvironmentUnusable(ILogger logger, string reason);
+
+        [LoggerMessage(
             EventId = LogEvents.CacheHitId,
             Level = LogLevel.Debug,
             Message = "Returning cached secret for URI: {SecretUri}")]

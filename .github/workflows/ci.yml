@@ -90,8 +90,8 @@ jobs:
           set -euo pipefail
           found=$(find ./downloaded -maxdepth 1 -name '*.nupkg' | wc -l)
           echo "Found $found package(s) in ./downloaded"
-          if [ "$found" -lt 2 ]; then
-            echo "::error::Expected both packages at the root of the download path; found $found."
+          if [ "$found" -lt 3 ]; then
+            echo "::error::Expected all three packages at the root of the download path; found $found."
             find ./downloaded -type f | sed 's/^/  /'
             exit 1
           fi

@@ -111,9 +111,18 @@ namespace KeyVaultReferenceResolver
             options = options ?? new KeyVaultReferenceResolverOptions();
             logger = logger ?? NullLogger.Instance;
 
-            var resolver = new KeyVaultSecretResolver(options, logger);
-
-            return builder.AddKeyVaultReferenceResolver(resolver, options, logger);
+            // Built only if the configuration holds a reference, so an application without any does not
+            // load a certificate (or fail on an expired one). applyEnvironmentConvention: with neither an
+            // explicit credential nor ClientCertificate, a store certificate whose subject or friendly
+            // name contains AZURE_CLIENT_ID is used for that service principal (with AZURE_TENANT_ID).
+            // See the CertificateStoreCredential package. The resolver is this method's own, and
+            // resolution finishes before it returns, so it is disposed there.
+            return AddResolver(
+                builder,
+                () => new KeyVaultSecretResolver(options, logger, applyEnvironmentConvention: true),
+                disposeResolver: true,
+                options,
+                logger);
         }
 
         /// <summary>
@@ -143,6 +152,19 @@ namespace KeyVaultReferenceResolver
             if (secretResolver == null)
                 throw new ArgumentNullException(nameof(secretResolver));
 
+            return AddResolver(builder, () => secretResolver, disposeResolver: false, options, logger);
+        }
+
+        private static IConfigurationBuilder AddResolver(
+            IConfigurationBuilder builder,
+            Func<ISecretResolver> createResolver,
+            bool disposeResolver,
+            KeyVaultReferenceResolverOptions? options,
+            ILogger? logger)
+        {
+            if (builder == null)
+                throw new ArgumentNullException(nameof(builder));
+
             options = options ?? new KeyVaultReferenceResolverOptions();
             options.Validate();
             logger = logger ?? NullLogger.Instance;
@@ -152,10 +174,16 @@ namespace KeyVaultReferenceResolver
             var referencingKeys = new Dictionary<string, string>();
             var distinctUris = new HashSet<string>(StringComparer.Ordinal);
 
-            // builder.Build() instantiates a fresh set of providers, separate from the ones the
-            // caller's own Build() will create. Each AddJsonFile(reloadOnChange: true) among them
-            // holds a FileSystemWatcher, so leaving this undisposed leaks one per source for the
-            // lifetime of the process.
+            // builder.Build() normally instantiates a fresh set of providers, separate from the
+            // ones the caller's own Build() will create. Each AddJsonFile(reloadOnChange: true)
+            // among them holds a FileSystemWatcher, so leaving it undisposed leaks one per source
+            // for the lifetime of the process.
+            //
+            // ConfigurationManager is the exception, and it is the type behind
+            // Host.CreateApplicationBuilder().Configuration: it is builder and root at once, and
+            // its Build() hands back itself rather than anything new. Disposing that would
+            // dispose the application's own configuration - including the provider list this
+            // method is about to Add to. See DisposeIfNotTheBuilder.
             var tempConfig = builder.Build();
             try
             {
@@ -177,7 +205,7 @@ namespace KeyVaultReferenceResolver
             }
             finally
             {
-                (tempConfig as IDisposable)?.Dispose();
+                DisposeIfNotTheBuilder(tempConfig, builder);
             }
 
             if (distinctUris.Count == 0)
@@ -190,8 +218,19 @@ namespace KeyVaultReferenceResolver
                 return builder;
             }
 
-            var secrets = RunWithoutSynchronizationContext(
-                () => ResolveSecrets(distinctUris, secretResolver, options, logger, referencingKeys));
+            var secretResolver = createResolver();
+            Dictionary<string, string?> secrets;
+            try
+            {
+                secrets = RunWithoutSynchronizationContext(
+                    () => ResolveSecrets(distinctUris, secretResolver, options, logger, referencingKeys));
+            }
+            finally
+            {
+                if (disposeResolver)
+                    (secretResolver as IDisposable)?.Dispose();
+            }
+
             var resolvedValues = new Dictionary<string, string?>(referencingKeys.Count);
 
             foreach (var entry in referencingKeys)
@@ -207,6 +246,27 @@ namespace KeyVaultReferenceResolver
             Log.ResolutionSummary(logger, succeeded, resolvedValues.Count);
 
             return builder;
+        }
+
+        /// <summary>
+        /// Disposes the root returned by <c>builder.Build()</c>, unless the builder handed back
+        /// itself.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="ConfigurationManager"/> implements <see cref="IConfigurationBuilder"/> and
+        /// <see cref="IConfigurationRoot"/> together, and its <c>Build()</c> returns <c>this</c>.
+        /// Disposing it would tear down the caller's live configuration; every later read, and
+        /// the <c>Add</c> this method performs moments afterwards, then throws
+        /// <see cref="ObjectDisposedException"/>. Anything that is genuinely a separate root is
+        /// still disposed, so the FileSystemWatcher held by each reloading file source goes with
+        /// it.
+        /// </remarks>
+        internal static void DisposeIfNotTheBuilder(IConfigurationRoot? root, IConfigurationBuilder builder)
+        {
+            if (ReferenceEquals(root, builder))
+                return;
+
+            (root as IDisposable)?.Dispose();
         }
 
         /// <summary>

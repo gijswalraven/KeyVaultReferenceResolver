@@ -10,7 +10,108 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
-Repository and CI only.
+## [2.1.0]
+
+`KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` 2.1.0, with the new
+`CertificateStoreCredential` 1.0.0. HashiCorp itself has no changes; it moves in lockstep.
+
+### Added
+
+- **New package `CertificateStoreCredential` 1.0.0**, which `KeyVaultReferenceResolver` now depends on
+  (published first, then `KeyVaultReferenceResolver`, then `KeyVaultReferenceResolver.HashiCorp`). It is a
+  `TokenCredential` for an Entra service principal that authenticates with a client certificate from the
+  Windows certificate store, with a non-exportable private key if need be. It knows nothing about Key Vault,
+  configuration or logging and depends only on Azure.Identity, so an application can use it on its own for
+  other tokens, for example Azure SQL (`https://database.windows.net/.default`), without referencing the
+  resolver. It has its own version and its own README. Types are in the `CertificateStoreCredentials`
+  namespace:
+  - `CertificateStoreCredential.TryCreateFromEnvironment()`: the convention below; `null` when it does not apply.
+  - `CertificateStoreCredential.Create(CertificateStoreCredentialOptions)`: the certificate is required.
+  - It owns the loaded certificate and wraps one `ClientCertificateCredential` (no cache of its own);
+    `Dispose()` is idempotent and releases the certificate.
+  - `CertificateStoreCredentialOptions`: tenant, client, and optionally a thumbprint and a `StoreLocation`.
+    Without a thumbprint, the certificate whose subject or friendly name contains the client ID is used.
+  - The certificate is validated when the credential is created: a missing, key-less, expired or
+    not-yet-valid certificate throws `InvalidOperationException`.
+- `KeyVaultReferenceResolverOptions.ClientCertificate` (a `CertificateStoreCredentialOptions`): authenticate the
+  resolver with such a certificate. Additive; without it nothing changes. `Credential` still takes precedence.
+- Convention: with `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` set, a certificate in `CurrentUser\My`
+  (then `LocalMachine\My`) whose subject or friendly name contains the client ID is used, with no
+  code and no thumbprint; the valid one expiring last wins, so renewal needs no change. It applies
+  only when such a certificate exists and `Credential`, `ClientCertificate`, `ExcludeEnvironmentCredential`,
+  `ManagedIdentityClientId`, a `TenantId` differing from `AZURE_TENANT_ID`, and `AZURE_CLIENT_SECRET` /
+  `AZURE_CLIENT_CERTIFICATE_PATH` / `AZURE_FEDERATED_TOKEN_FILE` / `AZURE_USERNAME` / `AZURE_PASSWORD` do not
+  say otherwise, and only through the `AddKeyVaultReferenceResolver` extension methods; a
+  `KeyVaultSecretResolver` constructed directly never reads the environment for an identity.
+  **Behaviour change for anyone who has a certificate whose subject contains their
+  `AZURE_CLIENT_ID`:** it is now used instead of the default credential chain. New log event 1007,
+  written by the resolver.
+
+### Changed
+
+- **The convention no longer throws on an unusable certificate:** one that names `AZURE_CLIENT_ID` but is expired, not
+  yet valid or has no accessible private key is logged as a warning (new event 1008) and the default credential chain
+  is used. `AZURE_CLIENT_ID` is also set for user-assigned managed identities, so a stale certificate must not stop
+  such an application. An explicit `ClientCertificate` is required and still throws.
+- The private key is opened once per candidate certificate, not once per check, and certificate handles are released
+  if the store scan throws part-way.
+- A store certificate's private key is probed when it is picked (`HasPrivateKey` alone is true even when the
+  key's ACL denies the account), so an inaccessible key fails at creation with the specific reason.
+- `CertificateStoreCredential.Dispose()` waits for token requests already in progress before it releases the
+  certificate; the resolver also disposes the certificate if its constructor throws.
+- The options-based `AddKeyVaultReferenceResolver` builds the resolver, and so loads a certificate, only when the
+  configuration holds a reference, and disposes it when resolution is done.
+- `new CertificateStoreCredentialOptions(tenant, client, thumbprint, storeLocation)` accepts a `null` or blank
+  thumbprint (meaning search by client ID) and a nullable `storeLocation`, so configuration that may omit the
+  thumbprint can be passed straight through.
+- The `KeyVaultReferenceResolver` package now requires `CertificateStoreCredential` `[its own version, next
+  major)` instead of a hardcoded range, and the release workflow checks the packed range and shares one package
+  list between its steps.
+- `CertificateStoreCredential.TryCreateFromEnvironment(options, requiredTenantId)`: the new overload applies the
+  convention only when `AZURE_TENANT_ID` equals the tenant the caller already chose. The resolver passes its
+  `TenantId` through it, so the environment rules live in the credential package.
+- A certificate whose friendly name cannot be read no longer fails the store scan, and when expired and
+  not-yet-valid certificates are mixed the error names the not-yet-valid one instead of an old expiry date.
+- The release workflow also checks that `KeyVaultReferenceResolver.HashiCorp` has the resolver's version, handles
+  prerelease versions of `CertificateStoreCredential`, and waits for each package to be listed on nuget.org
+  before pushing the one that depends on it.
+- The solution file is now `KeyVaultReferenceResolver.slnx` (the XML solution format) instead of
+  `KeyVaultReferenceResolver.sln`.
+- The release workflow publishes three packages in a fixed order, each after the ones it depends on.
+
+## [2.0.1]
+
+A single fix, plus the CI changes that were already pending. No API changes.
+
+### Fixed
+
+- `AddKeyVaultReferenceResolver` and `AddHashiCorpVaultResolver` no longer throw
+  `ObjectDisposedException: 'ConfigurationManager'` when called on
+  `Host.CreateApplicationBuilder().Configuration` or
+  `WebApplication.CreateBuilder().Configuration` — which is to say, on the
+  default host builder of every .NET 6+ application. Both packages were
+  affected, and the failure needed nothing but the call itself:
+
+  ```csharp
+  var builder = Host.CreateApplicationBuilder(args);
+  builder.Configuration.AddKeyVaultReferenceResolver(); // threw
+  ```
+
+  To find which keys hold references, the resolver builds the configuration
+  once and disposes that temporary root, so a reloading file source does not
+  leak its `FileSystemWatcher`. `ConfigurationManager` is builder and root at
+  once and its `Build()` returns *itself*, so the dispose tore down the
+  caller's live configuration; the `Add` immediately afterwards was the first
+  thing to notice. The root is now disposed only when it is not the builder,
+  and the leak fix is unchanged for every other builder.
+
+  **Affects 1.3.0, 1.4.0 and 2.0.0, in both packages.** `builder.Build()` has
+  been called since 1.0.0 and was harmless on its own; the bug arrived with the
+  dispose that 1.3.0 added to stop a reloading file source leaking a
+  `FileSystemWatcher`. The leak fix and this bug are the same change — it just
+  did not account for the one builder that hands back itself, which happens to
+  be the default everywhere. Those three versions are deprecated on nuget.org
+  and point here.
 
 ### Changed
 
@@ -450,7 +551,9 @@ resolution path in both packages.
 - Initial release: resolve `@Microsoft.KeyVault(SecretUri=...)` references in
   `Microsoft.Extensions.Configuration` anywhere, not just Azure App Service.
 
-[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.1...v2.1.0
+[2.0.1]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.4.0...v2.0.0
 [1.4.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.2.0...v1.3.0

@@ -1,0 +1,282 @@
+using System;
+using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using System.Threading.Tasks;
+using Azure.Core;
+using Azure.Identity;
+
+namespace CertificateStoreCredentials
+{
+    /// <summary>
+    /// A <see cref="TokenCredential"/> that authenticates as an Entra service principal with a client
+    /// certificate from the Windows certificate store, whose private key may be non-exportable.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It can supply a token for any Azure resource that accepts an Entra token, for example Key Vault
+    /// or an access token for Azure SQL (scope <c>https://database.windows.net/.default</c>) in a custom
+    /// authentication provider. It depends on no client library, only on Azure.Identity.
+    /// </para>
+    /// <para>
+    /// The instance owns the loaded <see cref="X509Certificate2"/> and wraps one
+    /// <see cref="ClientCertificateCredential"/>, so there is a single object and a single
+    /// <see cref="Dispose"/>. Tokens are cached by the wrapped credential; nothing is cached here. Create
+    /// one instance and keep it for the lifetime of the application rather than one per call, which would
+    /// discard the token cache.
+    /// </para>
+    /// <para>
+    /// The certificate is found and validated when the instance is created, not on the first token
+    /// request, so a missing, key-less or expired certificate fails at startup with a clear message.
+    /// </para>
+    /// </remarks>
+    public sealed class CertificateStoreCredential : TokenCredential, IDisposable
+    {
+        private readonly X509Certificate2 _certificate;
+        private readonly ClientCertificateCredential _inner;
+        private readonly object _gate = new object();
+        private int _active;
+        private bool _disposeRequested;
+
+        private CertificateStoreCredential(X509Certificate2 certificate, ClientCertificateCredential inner, string thumbprint)
+        {
+            _certificate = certificate;
+            _inner = inner;
+            Thumbprint = thumbprint;
+        }
+
+        /// <summary>
+        /// Creates the credential the environment convention names, or <c>null</c> when the convention
+        /// does not apply.
+        /// </summary>
+        /// <returns>
+        /// <c>null</c> when <c>AZURE_TENANT_ID</c> or <c>AZURE_CLIENT_ID</c> is missing, when none of the
+        /// <c>CurrentUser\My</c> or <c>LocalMachine\My</c> certificates names the client ID in its subject or
+        /// friendly name, or when <c>AZURE_CLIENT_SECRET</c>, <c>AZURE_CLIENT_CERTIFICATE_PATH</c>,
+        /// <c>AZURE_FEDERATED_TOKEN_FILE</c>, <c>AZURE_USERNAME</c> or <c>AZURE_PASSWORD</c> is set. These are the rules
+        /// <c>AddKeyVaultReferenceResolver</c> applies.
+        /// </returns>
+        /// <exception cref="InvalidOperationException">
+        /// A certificate names the client ID but is unusable: expired, not yet valid, or without an
+        /// accessible private key. It is not treated as "convention does not apply", so a broken setup is
+        /// not mistaken for an unconfigured one.
+        /// </exception>
+        public static CertificateStoreCredential? TryCreateFromEnvironment()
+        {
+            return TryCreateFromEnvironment((ClientCertificateCredentialOptions?)null);
+        }
+
+        /// <summary>
+        /// The same as <see cref="TryCreateFromEnvironment()"/>, with options for the wrapped
+        /// <see cref="ClientCertificateCredential"/>.
+        /// </summary>
+        /// <param name="credentialOptions">
+        /// Authority host, additionally allowed tenants and retry behaviour, or <c>null</c> for the Azure
+        /// Identity defaults (which include the <c>AZURE_AUTHORITY_HOST</c> environment variable).
+        /// </param>
+        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/returns"/>
+        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/exception"/>
+        public static CertificateStoreCredential? TryCreateFromEnvironment(ClientCertificateCredentialOptions? credentialOptions)
+        {
+            return TryCreateFromEnvironment(credentialOptions, requiredTenantId: null);
+        }
+
+        /// <summary>
+        /// The same as <see cref="TryCreateFromEnvironment(ClientCertificateCredentialOptions)"/>, for a
+        /// caller that has already chosen a tenant.
+        /// </summary>
+        /// <param name="credentialOptions">
+        /// Authority host, additionally allowed tenants and retry behaviour, or <c>null</c> for the Azure
+        /// Identity defaults.
+        /// </param>
+        /// <param name="requiredTenantId">
+        /// When not <c>null</c> or blank, the convention applies only if <c>AZURE_TENANT_ID</c> equals it
+        /// (case-insensitively); otherwise the result is <c>null</c>.
+        /// </param>
+        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/returns"/>
+        /// <inheritdoc cref="TryCreateFromEnvironment()" path="/exception"/>
+        public static CertificateStoreCredential? TryCreateFromEnvironment(
+            ClientCertificateCredentialOptions? credentialOptions,
+            string? requiredTenantId)
+        {
+            return TryCreateFromEnvironment(
+                Environment.GetEnvironmentVariable, CertificateStoreLoader.ReadStore, DateTimeOffset.UtcNow,
+                credentialOptions, requiredTenantId);
+        }
+
+        /// <summary>
+        /// Creates the credential for the certificate that <paramref name="options"/> names. Unlike
+        /// <see cref="TryCreateFromEnvironment()"/> the certificate is required.
+        /// </summary>
+        /// <param name="options">Identifies the service principal and the certificate.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="options"/> is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// The certificate is not in the store, has no accessible private key, has expired, or is not yet valid.
+        /// </exception>
+        public static CertificateStoreCredential Create(CertificateStoreCredentialOptions options)
+        {
+            return Create(options, null);
+        }
+
+        /// <summary>
+        /// The same as <see cref="Create(CertificateStoreCredentialOptions)"/>, with options for the
+        /// wrapped <see cref="ClientCertificateCredential"/>.
+        /// </summary>
+        /// <param name="options">Identifies the service principal and the certificate.</param>
+        /// <param name="credentialOptions">
+        /// Authority host, additionally allowed tenants and retry behaviour, or <c>null</c> for the Azure
+        /// Identity defaults.
+        /// </param>
+        /// <exception cref="ArgumentNullException"><paramref name="options"/> is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// The certificate is not in the store, has no accessible private key, has expired, or is not yet valid.
+        /// </exception>
+        public static CertificateStoreCredential Create(
+            CertificateStoreCredentialOptions options,
+            ClientCertificateCredentialOptions? credentialOptions)
+        {
+            if (options == null)
+                throw new ArgumentNullException(nameof(options));
+
+            return CreateFrom(options, credentialOptions, null, DateTimeOffset.UtcNow);
+        }
+
+        /// <inheritdoc />
+        public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        {
+            Enter();
+            try
+            {
+                return _inner.GetToken(requestContext, cancellationToken);
+            }
+            finally
+            {
+                Exit();
+            }
+        }
+
+        /// <inheritdoc />
+        public override async ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        {
+            Enter();
+            try
+            {
+                return await _inner.GetTokenAsync(requestContext, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                Exit();
+            }
+        }
+
+        /// <summary>
+        /// Releases the loaded certificate. Safe to call more than once. The credential cannot be used
+        /// afterwards. A token request already in progress finishes first: the certificate is released
+        /// when the last such request completes, so a shutdown does not make it sign with a disposed
+        /// certificate.
+        /// </summary>
+        public void Dispose()
+        {
+            bool releaseNow;
+            lock (_gate)
+            {
+                if (_disposeRequested)
+                    return;
+
+                _disposeRequested = true;
+                releaseNow = _active == 0;
+            }
+
+            if (releaseNow)
+                _certificate.Dispose();
+        }
+
+        /// <summary>
+        /// Gets the thumbprint of the certificate in use, for diagnostics such as logging which certificate was
+        /// picked. Not a secret. Still readable after <see cref="Dispose"/>.
+        /// </summary>
+        public string Thumbprint { get; }
+
+        /// <summary>The loaded certificate, for tests that assert on ownership.</summary>
+        internal X509Certificate2 Certificate => _certificate;
+
+        /// <summary>
+        /// Test seam: the convention with the environment and the stores supplied.
+        /// </summary>
+        internal static CertificateStoreCredential? TryCreateFromEnvironment(
+            Func<string, string?> getVariable,
+            Func<StoreLocation, X509Certificate2Collection> candidatesFor,
+            DateTimeOffset now,
+            ClientCertificateCredentialOptions? credentialOptions = null,
+            string? requiredTenantId = null)
+        {
+            // One read of the store: the search hands back the certificate it picked.
+            var found = CertificateStoreLoader.FindFromEnvironment(getVariable, candidatesFor, now, requiredTenantId);
+            if (found == null)
+                return null;
+
+            return CreateFromCertificate(
+                found.Settings, CertificateStoreLoader.LoadFound(found, now), credentialOptions);
+        }
+
+        /// <summary>
+        /// The one path that loads the certificate and builds the credential, behind every public
+        /// factory. <paramref name="candidatesFor"/> is <c>null</c> in production, which reads the
+        /// real store.
+        /// </summary>
+        internal static CertificateStoreCredential CreateFrom(
+            CertificateStoreCredentialOptions settings,
+            ClientCertificateCredentialOptions? credentialOptions,
+            Func<StoreLocation, X509Certificate2Collection>? candidatesFor,
+            DateTimeOffset now)
+        {
+            var certificate = candidatesFor == null
+                ? CertificateStoreLoader.Load(settings)
+                : CertificateStoreLoader.LoadFrom(settings, candidatesFor, now);
+
+            return CreateFromCertificate(settings, certificate, credentialOptions);
+        }
+
+        /// <summary>Builds the credential around a validated certificate, which it takes ownership of.</summary>
+        private static CertificateStoreCredential CreateFromCertificate(
+            CertificateStoreCredentialOptions settings,
+            X509Certificate2 certificate,
+            ClientCertificateCredentialOptions? credentialOptions)
+        {
+            try
+            {
+                var inner = CertificateStoreLoader.CreateCredential(settings, certificate, credentialOptions);
+                return new CertificateStoreCredential(certificate, inner, certificate.Thumbprint);
+            }
+            catch
+            {
+                certificate.Dispose();
+                throw;
+            }
+        }
+
+        /// <summary>Marks a use of the certificate, which defers its release; the test seam of <see cref="GetToken"/>.</summary>
+        internal void Enter()
+        {
+            lock (_gate)
+            {
+                if (_disposeRequested)
+                    throw new ObjectDisposedException(nameof(CertificateStoreCredential));
+
+                _active++;
+            }
+        }
+
+        internal void Exit()
+        {
+            bool releaseNow;
+            lock (_gate)
+            {
+                _active--;
+                releaseNow = _disposeRequested && _active == 0;
+            }
+
+            if (releaseNow)
+                _certificate.Dispose();
+        }
+    }
+}

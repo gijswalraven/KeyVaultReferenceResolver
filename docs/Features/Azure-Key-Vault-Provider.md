@@ -43,10 +43,25 @@ public KeyVaultSecretResolver(
 {
     _options = options ?? new KeyVaultReferenceResolverOptions();
     _options.Validate();
-    _credential = _options.Credential ?? CreateDefaultCredential(_options);
     _logger = logger ?? NullLogger.Instance;
+    // Precedence: Credential, then ClientCertificate, then the environment convention (only when
+    // the extension methods ask for it), then the default chain.
+    if (_options.Credential != null)
+        _credential = _options.Credential;
+    else if (_options.ClientCertificate != null)
+        _credential = _certificateCredential = CertificateStoreCredential.Create(
+            _options.ClientCertificate, BuildClientCertificateCredentialOptions(_options));   // validates; throws if unusable
+    else
+    {
+        if (applyEnvironmentConvention && !_options.ExcludeEnvironmentCredential)
+            _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
+                BuildClientCertificateCredentialOptions(_options));
+        _credential = (TokenCredential?)_certificateCredential ?? CreateDefaultCredential(_options);
+    }
 }
 ```
+
+The public constructor delegates to an internal one with `applyEnvironmentConvention` off; the extension methods turn it on, so a resolver constructed directly never reads the environment for an identity. When a store certificate is selected, the `CertificateStoreCredential` package finds and validates it (missing, no private key, expired, not yet valid all throw `InvalidOperationException`) and the credential owns the `X509Certificate2`; the resolver keeps the credential and disposes it. `BuildClientCertificateCredentialOptions` carries `AuthorityHost`, `AdditionallyAllowedTenants` and the retry settings of `ClientOptions` into the wrapped `ClientCertificateCredential`. See [Vault-Authentication-Methods.md](Vault-Authentication-Methods.md).
 
 Both parameters are optional, so `new KeyVaultSecretResolver()` is valid and gives defaults throughout. `Validate()` runs immediately, so a negative `Timeout` or a `MaxConcurrency` of zero fails at construction with an `ArgumentOutOfRangeException` naming the property, rather than at the first read.
 
@@ -211,7 +226,7 @@ Blocking sync-over-async, required by `ISecretResolver` and ultimately by the sy
 
 `InvalidateCache(string? secretUri = null)` removes one entry or clears the lot. `ResolveSecretAsync(uri, forceRefresh: true)` bypasses and replaces an entry. Neither changes values already in `IConfiguration` — see [Secret-Caching-And-Rotation.md](../Features/Secret-Caching-And-Rotation.md).
 
-`Dispose()` follows the standard pattern with a `protected virtual Dispose(bool)` and clears both dictionaries:
+`Dispose()` follows the standard pattern with a `protected virtual Dispose(bool)`. It clears both dictionaries and disposes the store certificate, if one was loaded:
 
 ```csharp
 // Resolved secrets are plain managed strings and cannot be zeroed, but dropping the
@@ -234,6 +249,10 @@ _expiresAt = ttl == System.Threading.Timeout.InfiniteTimeSpan
 ```
 
 `IsExpired` compares against `DateTimeOffset.UtcNow`. A struct rather than a class so entries are stored inline in the `ConcurrentDictionary` buckets with no per-entry allocation.
+
+### CertificateStoreCredential (separate package)
+
+Not part of this package: the resolver depends on the `CertificateStoreCredential` package, which finds the certificate (by thumbprint, or by the client ID in its subject or friendly name), validates it, discovers it from `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` for the environment convention, and wraps one `ClientCertificateCredential`. The package knows nothing about Key Vault, so any application can use the same credential for other tokens such as Azure SQL. See [Client-Certificate-Authentication-HOWTO.md](../Deployment/Client-Certificate-Authentication-HOWTO.md).
 
 ### CreateDefaultCredential
 

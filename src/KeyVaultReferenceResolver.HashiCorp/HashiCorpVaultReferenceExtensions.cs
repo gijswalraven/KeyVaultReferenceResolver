@@ -89,10 +89,12 @@ namespace KeyVaultReferenceResolver.HashiCorp
             var referencingKeys = new Dictionary<string, string>();
             var distinctReferences = new HashSet<string>(StringComparer.Ordinal);
 
-            // builder.Build() instantiates a fresh set of providers, separate from the ones the
-            // caller's own Build() will create. Each AddJsonFile(reloadOnChange: true) among them
-            // holds a FileSystemWatcher, so leaving this undisposed leaks one per source for the
-            // lifetime of the process.
+            // builder.Build() normally instantiates a fresh set of providers, separate from the
+            // ones the caller's own Build() will create. Each AddJsonFile(reloadOnChange: true)
+            // among them holds a FileSystemWatcher, so leaving it undisposed leaks one per source
+            // for the lifetime of the process. ConfigurationManager hands back itself instead,
+            // and disposing that would dispose the caller's configuration - see
+            // KeyVaultReferenceResolverExtensions.DisposeIfNotTheBuilder.
             var tempConfig = builder.Build();
             try
             {
@@ -114,7 +116,7 @@ namespace KeyVaultReferenceResolver.HashiCorp
             }
             finally
             {
-                (tempConfig as IDisposable)?.Dispose();
+                KeyVaultReferenceResolverExtensions.DisposeIfNotTheBuilder(tempConfig, builder);
             }
 
             if (distinctReferences.Count == 0)
