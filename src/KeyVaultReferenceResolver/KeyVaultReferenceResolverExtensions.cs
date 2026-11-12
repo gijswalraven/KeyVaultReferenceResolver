@@ -111,12 +111,18 @@ namespace KeyVaultReferenceResolver
             options = options ?? new KeyVaultReferenceResolverOptions();
             logger = logger ?? NullLogger.Instance;
 
-            // applyEnvironmentConvention: with neither an explicit credential nor ClientCertificate, a
-            // store certificate whose subject or friendly name contains AZURE_CLIENT_ID is used for that
-            // service principal (with AZURE_TENANT_ID). See the CertificateStoreCredential package.
-            var resolver = new KeyVaultSecretResolver(options, logger, applyEnvironmentConvention: true);
-
-            return builder.AddKeyVaultReferenceResolver(resolver, options, logger);
+            // Built only if the configuration holds a reference, so an application without any does not
+            // load a certificate (or fail on an expired one). applyEnvironmentConvention: with neither an
+            // explicit credential nor ClientCertificate, a store certificate whose subject or friendly
+            // name contains AZURE_CLIENT_ID is used for that service principal (with AZURE_TENANT_ID).
+            // See the CertificateStoreCredential package. The resolver is this method's own, and
+            // resolution finishes before it returns, so it is disposed there.
+            return AddResolver(
+                builder,
+                () => new KeyVaultSecretResolver(options, logger, applyEnvironmentConvention: true),
+                disposeResolver: true,
+                options,
+                logger);
         }
 
         /// <summary>
@@ -145,6 +151,19 @@ namespace KeyVaultReferenceResolver
                 throw new ArgumentNullException(nameof(builder));
             if (secretResolver == null)
                 throw new ArgumentNullException(nameof(secretResolver));
+
+            return AddResolver(builder, () => secretResolver, disposeResolver: false, options, logger);
+        }
+
+        private static IConfigurationBuilder AddResolver(
+            IConfigurationBuilder builder,
+            Func<ISecretResolver> createResolver,
+            bool disposeResolver,
+            KeyVaultReferenceResolverOptions? options,
+            ILogger? logger)
+        {
+            if (builder == null)
+                throw new ArgumentNullException(nameof(builder));
 
             options = options ?? new KeyVaultReferenceResolverOptions();
             options.Validate();
@@ -199,8 +218,19 @@ namespace KeyVaultReferenceResolver
                 return builder;
             }
 
-            var secrets = RunWithoutSynchronizationContext(
-                () => ResolveSecrets(distinctUris, secretResolver, options, logger, referencingKeys));
+            var secretResolver = createResolver();
+            Dictionary<string, string?> secrets;
+            try
+            {
+                secrets = RunWithoutSynchronizationContext(
+                    () => ResolveSecrets(distinctUris, secretResolver, options, logger, referencingKeys));
+            }
+            finally
+            {
+                if (disposeResolver)
+                    (secretResolver as IDisposable)?.Dispose();
+            }
+
             var resolvedValues = new Dictionary<string, string?>(referencingKeys.Count);
 
             foreach (var entry in referencingKeys)

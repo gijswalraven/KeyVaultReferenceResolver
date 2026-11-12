@@ -44,13 +44,16 @@
   <!--
     The project reference is for development; the published package depends on the
     CertificateStoreCredential package. Pack turns a project reference into "version >= its
-    version", with no upper bound, so a future 2.x of that package with breaking changes would be
-    accepted. This narrows the dependency to the 1.x line. Raise the range deliberately, together
-    with the reference, when a new major version of CertificateStoreCredential is adopted.
+    version", with no upper bound, so a future major version of that package with breaking changes
+    would be accepted. This narrows the dependency to [its version, next major): the lower bound
+    follows the referenced project's own <Version>, so a release that starts using a newer API of it
+    cannot be restored against an older one, and a major bump moves the upper bound with it.
+    The release workflow asserts the packed nuspec, because this hooks a private SDK target.
   -->
   <Target Name="NarrowCertificateStoreCredentialRange" AfterTargets="_GetProjectReferenceVersions">
     <ItemGroup>
-      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'CertificateStoreCredential'" ProjectVersion="[1.0.0, 2.0.0)" />
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'CertificateStoreCredential'"
+                                      ProjectVersion="[%(ProjectVersion), $([MSBuild]::Add($([System.Version]::Parse('%(ProjectVersion)').Major), 1)).0.0)" />
     </ItemGroup>
   </Target>
 

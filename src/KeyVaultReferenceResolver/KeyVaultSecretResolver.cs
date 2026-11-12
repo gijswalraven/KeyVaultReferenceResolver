@@ -61,30 +61,63 @@ namespace KeyVaultReferenceResolver
             // convention, then the default chain. A store certificate is validated here, at
             // construction, so a missing, key-less or expired certificate fails at startup with a
             // clear message instead of on the first vault call.
-            if (_options.Credential != null)
+            try
             {
-                _credential = _options.Credential;
-            }
-            else if (_options.ClientCertificate != null)
-            {
-                _certificateCredential = CertificateStoreCredential.Create(
-                    _options.ClientCertificate, BuildClientCertificateCredentialOptions(_options));
-                _credential = _certificateCredential;
-            }
-            else
-            {
-                // ExcludeEnvironmentCredential opts out of taking an identity from the process
-                // environment, and that covers the convention too.
-                if (applyEnvironmentConvention && !_options.ExcludeEnvironmentCredential)
+                if (_options.Credential != null)
                 {
-                    _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
-                        BuildClientCertificateCredentialOptions(_options));
-                    if (_certificateCredential != null)
-                        Log.ClientCertificateFromEnvironment(_logger);
+                    _credential = _options.Credential;
                 }
+                else if (_options.ClientCertificate != null)
+                {
+                    _certificateCredential = CertificateStoreCredential.Create(
+                        _options.ClientCertificate, BuildClientCertificateCredentialOptions(_options));
+                    _credential = _certificateCredential;
+                }
+                else
+                {
+                    if (applyEnvironmentConvention && ConventionApplies(_options))
+                    {
+                        _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
+                            BuildClientCertificateCredentialOptions(_options));
+                        if (_certificateCredential != null)
+                            Log.ClientCertificateFromEnvironment(_logger);
+                    }
 
-                _credential = (TokenCredential?)_certificateCredential ?? CreateDefaultCredential(_options);
+                    _credential = (TokenCredential?)_certificateCredential ?? CreateDefaultCredential(_options);
+                }
             }
+            catch
+            {
+                // The certificate credential owns a loaded certificate; a constructor that throws
+                // returns no object for anyone to dispose.
+                _certificateCredential?.Dispose();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Whether the environment convention may pick the identity. It stays out of the way when the
+        /// options already make a deliberate choice that the environment would override:
+        /// <c>ExcludeEnvironmentCredential</c> (opts out of taking an identity from the environment),
+        /// an explicit <c>ManagedIdentityClientId</c> (a managed identity was chosen), or a
+        /// <c>TenantId</c> that differs from <c>AZURE_TENANT_ID</c> (another tenant was chosen).
+        /// </summary>
+        internal static bool ConventionApplies(KeyVaultReferenceResolverOptions options)
+        {
+            if (options.ExcludeEnvironmentCredential)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(options.TenantId))
+            {
+                var environmentTenant = Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
+                if (!string.Equals(options.TenantId!.Trim(), environmentTenant?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            return true;
         }
 
         /// <summary>The credential in use, for tests that assert on which one was chosen.</summary>

@@ -97,6 +97,23 @@ namespace CertificateStoreCredentials
             Func<StoreLocation, X509Certificate2Collection> candidatesFor,
             DateTimeOffset now)
         {
+            var found = FindFromEnvironment(getVariable, candidatesFor, now);
+            if (found == null)
+                return null;
+
+            found.Certificate.Dispose();
+            return found.Settings;
+        }
+
+        /// <summary>
+        /// The same search as <see cref="FromEnvironment"/>, returning the certificate it picked so the
+        /// caller does not have to read the store a second time. The caller owns the certificate.
+        /// </summary>
+        internal static Match? FindFromEnvironment(
+            Func<string, string?> getVariable,
+            Func<StoreLocation, X509Certificate2Collection> candidatesFor,
+            DateTimeOffset now)
+        {
             var tenantId = getVariable(TenantIdVariable);
             var clientId = getVariable(ClientIdVariable);
             if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId))
@@ -112,11 +129,26 @@ namespace CertificateStoreCredentials
                 tenantId, clientId, new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine }, candidatesFor, now);
         }
 
+        /// <summary>A certificate picked from a store, with the settings that name it. The holder owns the certificate.</summary>
+        internal sealed class Match
+        {
+            public Match(CertificateStoreCredentialOptions settings, X509Certificate2 certificate)
+            {
+                Settings = settings;
+                Certificate = certificate;
+            }
+
+            public CertificateStoreCredentialOptions Settings { get; }
+
+            public X509Certificate2 Certificate { get; }
+        }
+
         /// <summary>
         /// Searches the given store locations, in order, for the certificate that names
-        /// <paramref name="clientId"/>. Returns settings carrying its thumbprint, or <c>null</c>.
+        /// <paramref name="clientId"/>. Returns it with settings carrying its thumbprint, or <c>null</c>.
+        /// The caller owns the returned certificate; every other one read is disposed.
         /// </summary>
-        private static CertificateStoreCredentialOptions? FindByClientId(
+        private static Match? FindByClientId(
             string tenantId,
             string clientId,
             StoreLocation[] locations,
@@ -125,38 +157,63 @@ namespace CertificateStoreCredentials
         {
             // The best unusable match, used only when no location holds a usable one, so that Load
             // fails with the specific reason rather than falling back to the default chain.
-            CertificateStoreCredentialOptions? fallback = null;
+            Match? fallback = null;
 
-            foreach (var location in locations)
+            try
             {
-                var all = candidatesFor(location).Cast<X509Certificate2>().ToList();
-                try
+                foreach (var location in locations)
                 {
-                    var matches = all.Where(c => Names(c, clientId)).ToList();
-
-                    var usable = matches
-                        .Where(c => IsUsable(c, now))
-                        .OrderByDescending(c => c.NotAfter)
-                        .FirstOrDefault();
-
-                    if (usable != null)
-                        return new CertificateStoreCredentialOptions(tenantId, clientId, usable.Thumbprint, location);
-
-                    if (fallback == null)
+                    var all = candidatesFor(location).Cast<X509Certificate2>().ToList();
+                    X509Certificate2? kept = null;
+                    try
                     {
-                        var best = matches.OrderByDescending(c => c.NotAfter).FirstOrDefault();
-                        if (best != null)
-                            fallback = new CertificateStoreCredentialOptions(tenantId, clientId, best.Thumbprint, location);
+                        var matches = all.Where(c => Names(c, clientId)).ToList();
+
+                        var usable = matches
+                            .Where(c => IsUsable(c, now))
+                            .OrderByDescending(c => c.NotAfter)
+                            .FirstOrDefault();
+
+                        if (usable != null)
+                        {
+                            kept = usable;
+                            return new Match(
+                                new CertificateStoreCredentialOptions(tenantId, clientId, usable.Thumbprint, location),
+                                usable);
+                        }
+
+                        if (fallback == null)
+                        {
+                            var best = matches.OrderByDescending(c => c.NotAfter).FirstOrDefault();
+                            if (best != null)
+                            {
+                                kept = best;
+                                fallback = new Match(
+                                    new CertificateStoreCredentialOptions(tenantId, clientId, best.Thumbprint, location),
+                                    best);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        foreach (var certificate in all)
+                        {
+                            if (!ReferenceEquals(certificate, kept))
+                                certificate.Dispose();
+                        }
                     }
                 }
-                finally
-                {
-                    foreach (var certificate in all)
-                        certificate.Dispose();
-                }
-            }
 
-            return fallback;
+                var result = fallback;
+                fallback = null;
+                return result;
+            }
+            finally
+            {
+                // Reached with a fallback still held when a usable match returned from a later
+                // location (or on an exception): it is not the one handed out.
+                fallback?.Certificate.Dispose();
+            }
         }
 
         /// <summary>
@@ -172,6 +229,16 @@ namespace CertificateStoreCredentials
             if (settings.Thumbprint != null)
                 return settings;
 
+            var found = FindForSettings(settings, candidatesFor, now);
+            found.Certificate.Dispose();
+            return found.Settings;
+        }
+
+        private static Match FindForSettings(
+            CertificateStoreCredentialOptions settings,
+            Func<StoreLocation, X509Certificate2Collection> candidatesFor,
+            DateTimeOffset now)
+        {
             var locations = settings.StoreLocation is StoreLocation single
                 ? new[] { single }
                 : new[] { StoreLocation.CurrentUser, StoreLocation.LocalMachine };
@@ -210,10 +277,40 @@ namespace CertificateStoreCredentials
                    || certificate.FriendlyName.IndexOf(clientId, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        /// <summary>
+        /// Whether this process can use the private key. <c>HasPrivateKey</c> only says a key is
+        /// associated with the certificate; on Windows it is true even when the key's ACL denies this
+        /// account, which would otherwise surface as a <see cref="CryptographicException"/> on the first
+        /// token request. Opening the key here moves that failure to creation.
+        /// </summary>
+        private static bool HasUsablePrivateKey(X509Certificate2 certificate)
+        {
+            if (!certificate.HasPrivateKey)
+                return false;
+
+            try
+            {
+                using (var rsa = certificate.GetRSAPrivateKey())
+                {
+                    if (rsa != null)
+                        return true;
+                }
+
+                using (var ecdsa = certificate.GetECDsaPrivateKey())
+                {
+                    return ecdsa != null;
+                }
+            }
+            catch (CryptographicException)
+            {
+                return false;
+            }
+        }
+
         /// <summary>Has an accessible private key and is inside its validity window.</summary>
         private static bool IsUsable(X509Certificate2 certificate, DateTimeOffset now)
         {
-            return certificate.HasPrivateKey
+            return HasUsablePrivateKey(certificate)
                    && new DateTimeOffset(certificate.NotBefore) <= now + ClockSkew
                    && new DateTimeOffset(certificate.NotAfter) > now;
         }
@@ -230,10 +327,13 @@ namespace CertificateStoreCredentials
         /// <exception cref="InvalidOperationException">See <see cref="Select"/>.</exception>
         internal static X509Certificate2 Load(CertificateStoreCredentialOptions requested)
         {
-            // From here on the settings carry a thumbprint and a location.
-            var settings = Resolve(requested, ReadStore, DateTimeOffset.UtcNow);
+            if (requested.Thumbprint == null)
+            {
+                var now = DateTimeOffset.UtcNow;
+                return LoadFound(FindForSettings(requested, ReadStore, now), now);
+            }
 
-            using (var store = new X509Store(StoreName.My, settings.StoreLocation!.Value))
+            using (var store = new X509Store(StoreName.My, LocationOf(requested)))
             {
                 try
                 {
@@ -244,11 +344,11 @@ namespace CertificateStoreCredentials
                     // A store that does not exist (OpenExistingOnly) or is unsupported on this
                     // platform: the certificate cannot be there.
                     throw new InvalidOperationException(
-                        $"The client certificate with thumbprint {settings.Thumbprint} could not be found: " +
-                        $"the {Describe(settings)} could not be opened ({ex.GetType().Name}).", ex);
+                        $"The client certificate with thumbprint {requested.Thumbprint} could not be found: " +
+                        $"the {Describe(requested)} could not be opened ({ex.GetType().Name}).", ex);
                 }
 
-                return SelectByThumbprint(store.Certificates, settings, DateTimeOffset.UtcNow);
+                return SelectByThumbprint(store.Certificates, requested, DateTimeOffset.UtcNow);
             }
         }
 
@@ -261,8 +361,28 @@ namespace CertificateStoreCredentials
             Func<StoreLocation, X509Certificate2Collection> candidatesFor,
             DateTimeOffset now)
         {
-            var settings = Resolve(requested, candidatesFor, now);
-            return SelectByThumbprint(candidatesFor(settings.StoreLocation!.Value), settings, now);
+            if (requested.Thumbprint == null)
+                return LoadFound(FindForSettings(requested, candidatesFor, now), now);
+
+            return SelectByThumbprint(candidatesFor(LocationOf(requested)), requested, now);
+        }
+
+        /// <summary>
+        /// Validates the certificate a client-ID search already picked, without reading the store again.
+        /// Takes ownership of the match's certificate.
+        /// </summary>
+        internal static X509Certificate2 LoadFound(Match found, DateTimeOffset now)
+        {
+            return Select(new X509Certificate2Collection(found.Certificate), found.Settings, now);
+        }
+
+        /// <summary>
+        /// The store location of settings that carry a thumbprint: the one given, else
+        /// <c>CurrentUser</c>.
+        /// </summary>
+        private static StoreLocation LocationOf(CertificateStoreCredentialOptions settings)
+        {
+            return settings.StoreLocation ?? StoreLocation.CurrentUser;
         }
 
         /// <summary>
@@ -312,7 +432,7 @@ namespace CertificateStoreCredentials
                 }
                 else
                 {
-                    var withKey = all.Where(c => c.HasPrivateKey).ToList();
+                    var withKey = all.Where(HasUsablePrivateKey).ToList();
                     if (withKey.Count == 0)
                     {
                         failure = $"The client certificate with thumbprint {settings.Thumbprint} in the " +
@@ -383,7 +503,7 @@ namespace CertificateStoreCredentials
 
         private static string Describe(CertificateStoreCredentialOptions settings)
         {
-            return $"{StoreName.My} certificate store of {settings.StoreLocation} " +
+            return $"{StoreName.My} certificate store of {LocationOf(settings)} " +
                    $"(process user '{Environment.UserDomainName}\\{Environment.UserName}')";
         }
     }

@@ -182,8 +182,10 @@ picked up without changing anything. An information record (event 1007) notes th
   `AZURE_CLIENT_ID`), so without a matching certificate the default credential chain is used as before.
 - If a certificate names the client but is unusable (expired, not yet valid, no accessible private key),
   setup throws with that specific reason instead of falling back.
-- It stays out of the way when `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or
-  `AZURE_FEDERATED_TOKEN_FILE` is set, when `Credential` or `ClientCertificate` is set, and when
+- It stays out of the way when `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`,
+  `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set, when `Credential` or
+  `ClientCertificate` is set, when `ManagedIdentityClientId` is set or `TenantId` differs from
+  `AZURE_TENANT_ID` (a deliberate choice of another identity), and when
   `ExcludeEnvironmentCredential = true` (both take an identity from the process environment).
 - A missing certificate is therefore *not* reported by the convention itself: with no match you get
   the default chain and its error. To fail on a missing certificate, use the explicit form below.

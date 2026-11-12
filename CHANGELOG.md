@@ -38,8 +38,9 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 - Convention: with `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` set, a certificate in `CurrentUser\My`
   (then `LocalMachine\My`) whose subject or friendly name contains the client ID is used, with no
   code and no thumbprint; the valid one expiring last wins, so renewal needs no change. It applies
-  only when such a certificate exists and `Credential`, `ClientCertificate`, `ExcludeEnvironmentCredential`
-  and `AZURE_CLIENT_SECRET` / `AZURE_CLIENT_CERTIFICATE_PATH` / `AZURE_FEDERATED_TOKEN_FILE` do not
+  only when such a certificate exists and `Credential`, `ClientCertificate`, `ExcludeEnvironmentCredential`,
+  `ManagedIdentityClientId`, a `TenantId` differing from `AZURE_TENANT_ID`, and `AZURE_CLIENT_SECRET` /
+  `AZURE_CLIENT_CERTIFICATE_PATH` / `AZURE_FEDERATED_TOKEN_FILE` / `AZURE_USERNAME` / `AZURE_PASSWORD` do not
   say otherwise, and only through the `AddKeyVaultReferenceResolver` extension methods; a
   `KeyVaultSecretResolver` constructed directly never reads the environment for an identity.
   **Behaviour change for anyone who has a certificate whose subject contains their
@@ -48,6 +49,18 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ### Changed
 
+- A store certificate's private key is probed when it is picked (`HasPrivateKey` alone is true even when the
+  key's ACL denies the account), so an inaccessible key fails at creation with the specific reason.
+- `CertificateStoreCredential.Dispose()` waits for token requests already in progress before it releases the
+  certificate; the resolver also disposes the certificate if its constructor throws.
+- The options-based `AddKeyVaultReferenceResolver` builds the resolver, and so loads a certificate, only when the
+  configuration holds a reference, and disposes it when resolution is done.
+- `new CertificateStoreCredentialOptions(tenant, client, thumbprint, storeLocation)` accepts a `null` or blank
+  thumbprint (meaning search by client ID) and a nullable `storeLocation`, so configuration that may omit the
+  thumbprint can be passed straight through.
+- The `KeyVaultReferenceResolver` package now requires `CertificateStoreCredential` `[its own version, next
+  major)` instead of a hardcoded range, and the release workflow checks the packed range and shares one package
+  list between its steps.
 - The solution file is now `KeyVaultReferenceResolver.slnx` (the XML solution format) instead of
   `KeyVaultReferenceResolver.sln`.
 - The release workflow publishes three packages in a fixed order, each after the ones it depends on.

@@ -110,7 +110,7 @@ The default credential chain and one convention read `AZURE_*` environment varia
 | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET` | The environment credential sits ahead of the developer credentials and is used instead of your sign-in (unless `ExcludeEnvironmentCredential = true`). A leftover value from another project is a common cause of unexpected 403s. |
 | `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`, and a certificate in your `CurrentUser\My` or `LocalMachine\My` whose subject or friendly name contains the client ID | The store-certificate convention takes over instead of your sign-in, and an information record (event 1007) is logged. |
 | Either set, with no matching certificate and no client secret | Nothing changes for the convention; `AZURE_CLIENT_ID` can still name a user-assigned identity for managed identity (not relevant on a laptop). |
-| `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE` | The convention stays out of the way. |
+| `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` | The convention stays out of the way. |
 
 To see what is set:
 

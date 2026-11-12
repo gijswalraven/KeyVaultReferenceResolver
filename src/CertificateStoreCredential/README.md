@@ -42,7 +42,7 @@ It returns **`null`** (the convention does not apply) when:
 
 - `AZURE_TENANT_ID` or `AZURE_CLIENT_ID` is not set, or
 - no certificate names the client ID, or
-- `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE` is set (another mechanism is configured).
+- `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set (another mechanism is configured).
 
 It **throws `InvalidOperationException`** when a certificate does name the client ID but is unusable (expired, not yet valid, or no accessible private key). That is deliberately not "does not apply": a broken setup must not look like an unconfigured one.
 

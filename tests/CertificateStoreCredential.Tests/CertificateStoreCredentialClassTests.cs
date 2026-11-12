@@ -32,7 +32,7 @@ public class CertificateStoreCredentialClassTests
     private static readonly string[] Variables =
     {
         "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
-        "AZURE_CLIENT_CERTIFICATE_PATH", "AZURE_FEDERATED_TOKEN_FILE"
+        "AZURE_CLIENT_CERTIFICATE_PATH", "AZURE_FEDERATED_TOKEN_FILE", "AZURE_USERNAME", "AZURE_PASSWORD"
     };
 
     private static X509Certificate2 Cert(string subject, TimeSpan notBefore, TimeSpan notAfter)
@@ -105,6 +105,8 @@ public class CertificateStoreCredentialClassTests
     [InlineData("AZURE_CLIENT_SECRET")]
     [InlineData("AZURE_CLIENT_CERTIFICATE_PATH")]
     [InlineData("AZURE_FEDERATED_TOKEN_FILE")]
+    [InlineData("AZURE_USERNAME")]
+    [InlineData("AZURE_PASSWORD")]
     public void TryCreateFromEnvironment_AnotherMechanismConfigured_ReturnsNull(string variable)
     {
         var clientId = Guid.NewGuid().ToString();
@@ -209,6 +211,58 @@ public class CertificateStoreCredentialClassTests
 
         Assert.Equal(IntPtr.Zero, loaded.Handle);
         Assert.Equal(certificate.Thumbprint, credential.Thumbprint);
+    }
+
+    [Fact]
+    public void Dispose_DuringATokenRequest_ReleasesTheCertificateOnlyWhenItEnds()
+    {
+        var clientId = Guid.NewGuid().ToString();
+        using var certificate = ValidCert("CN=" + clientId);
+
+        var credential = CertificateStoreCredential.TryCreateFromEnvironment(
+            Env(("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", clientId)),
+            StoreHolding(certificate), DateTimeOffset.UtcNow)!;
+        var loaded = credential.Certificate;
+
+        credential.Enter();
+        credential.Dispose();
+
+        // The request in flight can still sign; new ones are refused.
+        Assert.NotEqual(IntPtr.Zero, loaded.Handle);
+        Assert.Throws<ObjectDisposedException>(() => credential.Enter());
+
+        credential.Exit();
+
+        Assert.Equal(IntPtr.Zero, loaded.Handle);
+    }
+
+    [Fact]
+    public void BlankThumbprint_MeansSearchByClientId_AndKeepsTheLocationUnset()
+    {
+        foreach (var blank in new string?[] { null, "", "  " })
+        {
+            var settings = new CertificateStoreCredentialOptions(Tenant, "client-1", blank);
+            Assert.Null(settings.Thumbprint);
+            Assert.Null(settings.StoreLocation);
+        }
+
+        var oneStore = new CertificateStoreCredentialOptions(Tenant, "client-1", (string?)null, StoreLocation.LocalMachine);
+        Assert.Null(oneStore.Thumbprint);
+        Assert.Equal(StoreLocation.LocalMachine, oneStore.StoreLocation);
+    }
+
+    [Fact]
+    public void KeyThatCannotBeOpened_IsNotUsable_AndTheSearchReportsTheMissingKey()
+    {
+        var clientId = Guid.NewGuid().ToString();
+        using var certificate = ValidCert("CN=" + clientId);
+
+        // A certificate carrying only its public part has no usable key; with the key check the
+        // convention fails with the specific reason instead of returning a credential.
+        var ex = Assert.Throws<InvalidOperationException>(() => CertificateStoreCredential.TryCreateFromEnvironment(
+            Env(("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", clientId)),
+            PublicOnlyStoreHolding(certificate), DateTimeOffset.UtcNow));
+        Assert.Contains("private key", ex.Message);
     }
 
     [Fact]

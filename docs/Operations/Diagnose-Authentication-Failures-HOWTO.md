@@ -63,7 +63,7 @@ The library chooses the credential in a fixed order. The first one that applies 
 | --- | --- | --- | --- |
 | 1 | `options.Credential` | It is set in code. | Look for `Credential =` in the application's setup. |
 | 2 | `options.ClientCertificate` | It is set in code and `Credential` is not. | Look for `ClientCertificate =`. Certificate failures are thrown at startup. |
-| 3 | Environment convention | `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set, a store certificate's subject or friendly name contains the client ID, none of `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE` is set, and `ExcludeEnvironmentCredential` is not `true`. | Log event **1007** (Information): "Authenticating with a store client certificate found for AZURE_CLIENT_ID". |
+| 3 | Environment convention | `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set, a store certificate's subject or friendly name contains the client ID, none of `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME`, `AZURE_PASSWORD` is set, `ManagedIdentityClientId` is unset, `TenantId` is unset or equals `AZURE_TENANT_ID`, and `ExcludeEnvironmentCredential` is not `true`. | Log event **1007** (Information): "Authenticating with a store client certificate found for AZURE_CLIENT_ID". |
 | 4 | `DefaultAzureCredential` | None of the above applies. | Environment credential, then workload identity, then managed identity, plus (only with `AllowDeveloperCredentials = true`) Azure CLI, Azure Developer CLI, Visual Studio and Azure PowerShell. Interactive browser is always excluded. |
 
 Two consequences:

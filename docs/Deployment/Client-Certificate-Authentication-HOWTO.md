@@ -175,7 +175,7 @@ Rules worth knowing:
 | Matching certificate found and usable | It is used. An information record (event 1007) says so. |
 | Matching certificate found but expired, not yet valid, or no private key | Setup throws an `InvalidOperationException` naming the reason. |
 | No matching certificate | Convention does not apply; the default credential chain is used as before. |
-| `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE` is set | Convention stays out of the way. |
+| `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set | Convention stays out of the way. |
 | `options.Credential` or `options.ClientCertificate` is set | The explicit setting wins. |
 | `ExcludeEnvironmentCredential = true` | Convention is switched off. |
 
@@ -240,7 +240,7 @@ AccessToken token = await credential!.GetTokenAsync(
 Things to know:
 
 - **Create it once and keep it.** The wrapped `ClientCertificateCredential` caches tokens and renews them near expiry; a new instance per call discards that cache. Register one instance as a singleton and dispose it at shutdown. `Dispose()` releases the loaded certificate, may be called more than once, and makes later token requests throw `ObjectDisposedException`. `Thumbprint` tells you which certificate was picked, for logging.
-- **Same rules as the resolver.** The same lookup, validation and messages apply, at creation, not on the first token request, because the resolver uses this very class. `TryCreateFromEnvironment()` returns `null` exactly where `AddKeyVaultReferenceResolver` would leave the default chain in charge: no variables, no matching certificate, or `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE` set.
+- **Same rules as the resolver.** The same lookup, validation and messages apply, at creation, not on the first token request, because the resolver uses this very class. `TryCreateFromEnvironment()` returns `null` exactly where `AddKeyVaultReferenceResolver` would leave the default chain in charge: no variables, no matching certificate, or `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` set.
 - **No fallback is built in, and no logging.** Decide what `null` means for your application: fail, or fall back to another credential, for example `TokenCredential credential = (TokenCredential?)CertificateStoreCredential.TryCreateFromEnvironment() ?? new DefaultAzureCredential();` (then dispose only if it is the certificate credential). The package has no logging, so event 1007 is written by the resolver only.
 - **Authority host and retry settings** are the defaults of `ClientCertificateCredential` (including `AZURE_AUTHORITY_HOST`). Both factories have an overload that takes a `ClientCertificateCredentialOptions`; the resolver uses it to pass on its own `AuthorityHost`, `AdditionallyAllowedTenants` and retry settings.
 

@@ -33,7 +33,9 @@ namespace CertificateStoreCredentials
     {
         private readonly X509Certificate2 _certificate;
         private readonly ClientCertificateCredential _inner;
-        private int _disposed;
+        private readonly object _gate = new object();
+        private int _active;
+        private bool _disposeRequested;
 
         private CertificateStoreCredential(X509Certificate2 certificate, ClientCertificateCredential inner, string thumbprint)
         {
@@ -49,8 +51,8 @@ namespace CertificateStoreCredentials
         /// <returns>
         /// <c>null</c> when <c>AZURE_TENANT_ID</c> or <c>AZURE_CLIENT_ID</c> is missing, when none of the
         /// <c>CurrentUser\My</c> or <c>LocalMachine\My</c> certificates names the client ID in its subject or
-        /// friendly name, or when <c>AZURE_CLIENT_SECRET</c>, <c>AZURE_CLIENT_CERTIFICATE_PATH</c> or
-        /// <c>AZURE_FEDERATED_TOKEN_FILE</c> is set. These are the rules
+        /// friendly name, or when <c>AZURE_CLIENT_SECRET</c>, <c>AZURE_CLIENT_CERTIFICATE_PATH</c>,
+        /// <c>AZURE_FEDERATED_TOKEN_FILE</c>, <c>AZURE_USERNAME</c> or <c>AZURE_PASSWORD</c> is set. These are the rules
         /// <c>AddKeyVaultReferenceResolver</c> applies.
         /// </returns>
         /// <exception cref="InvalidOperationException">
@@ -119,24 +121,50 @@ namespace CertificateStoreCredentials
         /// <inheritdoc />
         public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
         {
-            ThrowIfDisposed();
-            return _inner.GetToken(requestContext, cancellationToken);
+            Enter();
+            try
+            {
+                return _inner.GetToken(requestContext, cancellationToken);
+            }
+            finally
+            {
+                Exit();
+            }
         }
 
         /// <inheritdoc />
-        public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        public override async ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
         {
-            ThrowIfDisposed();
-            return _inner.GetTokenAsync(requestContext, cancellationToken);
+            Enter();
+            try
+            {
+                return await _inner.GetTokenAsync(requestContext, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                Exit();
+            }
         }
 
         /// <summary>
         /// Releases the loaded certificate. Safe to call more than once. The credential cannot be used
-        /// afterwards.
+        /// afterwards. A token request already in progress finishes first: the certificate is released
+        /// when the last such request completes, so a shutdown does not make it sign with a disposed
+        /// certificate.
         /// </summary>
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            bool releaseNow;
+            lock (_gate)
+            {
+                if (_disposeRequested)
+                    return;
+
+                _disposeRequested = true;
+                releaseNow = _active == 0;
+            }
+
+            if (releaseNow)
                 _certificate.Dispose();
         }
 
@@ -158,10 +186,13 @@ namespace CertificateStoreCredentials
             DateTimeOffset now,
             ClientCertificateCredentialOptions? credentialOptions = null)
         {
-            var settings = CertificateStoreLoader.FromEnvironment(getVariable, candidatesFor, now);
-            return settings == null
-                ? null
-                : CreateFrom(settings, credentialOptions, candidatesFor, now);
+            // One read of the store: the search hands back the certificate it picked.
+            var found = CertificateStoreLoader.FindFromEnvironment(getVariable, candidatesFor, now);
+            if (found == null)
+                return null;
+
+            return CreateFromCertificate(
+                found.Settings, CertificateStoreLoader.LoadFound(found, now), credentialOptions);
         }
 
         /// <summary>
@@ -179,6 +210,15 @@ namespace CertificateStoreCredentials
                 ? CertificateStoreLoader.Load(settings)
                 : CertificateStoreLoader.LoadFrom(settings, candidatesFor, now);
 
+            return CreateFromCertificate(settings, certificate, credentialOptions);
+        }
+
+        /// <summary>Builds the credential around a validated certificate, which it takes ownership of.</summary>
+        private static CertificateStoreCredential CreateFromCertificate(
+            CertificateStoreCredentialOptions settings,
+            X509Certificate2 certificate,
+            ClientCertificateCredentialOptions? credentialOptions)
+        {
             try
             {
                 var inner = CertificateStoreLoader.CreateCredential(settings, certificate, credentialOptions);
@@ -191,10 +231,29 @@ namespace CertificateStoreCredentials
             }
         }
 
-        private void ThrowIfDisposed()
+        /// <summary>Marks a use of the certificate, which defers its release; the test seam of <see cref="GetToken"/>.</summary>
+        internal void Enter()
         {
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(nameof(CertificateStoreCredential));
+            lock (_gate)
+            {
+                if (_disposeRequested)
+                    throw new ObjectDisposedException(nameof(CertificateStoreCredential));
+
+                _active++;
+            }
+        }
+
+        internal void Exit()
+        {
+            bool releaseNow;
+            lock (_gate)
+            {
+                _active--;
+                releaseNow = _disposeRequested && _active == 0;
+            }
+
+            if (releaseNow)
+                _certificate.Dispose();
         }
     }
 }

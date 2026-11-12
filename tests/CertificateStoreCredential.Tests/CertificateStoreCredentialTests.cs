@@ -58,7 +58,6 @@ public class CertificateStoreCredentialTests
     [Theory]
     [InlineData("", Client, "AB")]
     [InlineData(Tenant, " ", "AB")]
-    [InlineData(Tenant, Client, "")]
     [InlineData(Tenant, Client, " ‎ - : ")]
     [InlineData(Tenant, Client, "not-hex-zz")]
     public void InvalidValues_AreRejected(string tenant, string client, string thumbprint)

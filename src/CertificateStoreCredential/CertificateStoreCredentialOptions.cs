@@ -29,23 +29,29 @@ namespace CertificateStoreCredentials
     public sealed class CertificateStoreCredentialOptions
     {
         /// <summary>
-        /// Creates the settings for a store certificate identified by thumbprint.
+        /// Creates the settings for a store certificate identified by thumbprint, or, when the
+        /// thumbprint is <c>null</c> or blank, for the one named after the client ID.
         /// </summary>
         /// <param name="tenantId">The Entra tenant (directory) ID the service principal lives in.</param>
         /// <param name="clientId">The application (client) ID of the service principal.</param>
         /// <param name="thumbprint">
         /// The certificate thumbprint. Spaces, colons, hyphens and invisible characters (such as the
         /// U+200E that the Certificates snap-in adds when copying) are removed and the value is
-        /// upper-cased.
+        /// upper-cased. <c>null</c>, empty or whitespace means no thumbprint, so configuration that may
+        /// leave it out can pass it straight through; the certificate is then found as described on
+        /// <see cref="CertificateStoreCredentialOptions(string, string)"/>.
         /// </param>
-        /// <param name="storeLocation">The store location to search. Default is <see cref="X509StoreLocation.CurrentUser"/>.</param>
+        /// <param name="storeLocation">
+        /// The store location to search. When omitted: <see cref="X509StoreLocation.CurrentUser"/> with a
+        /// thumbprint, and <c>CurrentUser</c> then <c>LocalMachine</c> without one.
+        /// </param>
         /// <exception cref="ArgumentException">A value is empty, or the thumbprint is not hexadecimal.</exception>
         public CertificateStoreCredentialOptions(
             string tenantId,
             string clientId,
-            string thumbprint,
-            StoreLocation storeLocation = X509StoreLocation.CurrentUser)
-            : this(tenantId, clientId, (StoreLocation?)storeLocation, NormalizeRequired(thumbprint))
+            string? thumbprint,
+            StoreLocation? storeLocation = null)
+            : this(tenantId, clientId, ResolveLocation(thumbprint, storeLocation), NormalizeOptional(thumbprint))
         {
         }
 
@@ -61,7 +67,7 @@ namespace CertificateStoreCredentials
         /// </param>
         /// <exception cref="ArgumentException">A value is empty.</exception>
         public CertificateStoreCredentialOptions(string tenantId, string clientId)
-            : this(tenantId, clientId, null, null)
+            : this(tenantId, clientId, (StoreLocation?)null, (string?)null)
         {
         }
 
@@ -91,12 +97,20 @@ namespace CertificateStoreCredentials
             StoreLocation = storeLocation;
         }
 
-        private static string NormalizeRequired(string thumbprint)
+        private static StoreLocation? ResolveLocation(string? thumbprint, StoreLocation? storeLocation)
         {
-            if (thumbprint == null)
-                throw new ArgumentNullException(nameof(thumbprint));
+            // A thumbprint always comes with a location, so the loader never has to assume one.
+            return string.IsNullOrWhiteSpace(thumbprint)
+                ? storeLocation
+                : storeLocation ?? X509StoreLocation.CurrentUser;
+        }
 
-            var normalized = CertificateStoreLoader.NormalizeThumbprint(thumbprint);
+        private static string? NormalizeOptional(string? thumbprint)
+        {
+            if (string.IsNullOrWhiteSpace(thumbprint))
+                return null;
+
+            var normalized = CertificateStoreLoader.NormalizeThumbprint(thumbprint!);
             if (normalized.Length == 0)
                 throw new ArgumentException("A certificate thumbprint is required.", nameof(thumbprint));
             if (!CertificateStoreLoader.IsHex(normalized))

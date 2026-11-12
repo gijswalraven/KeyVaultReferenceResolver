@@ -135,7 +135,39 @@ public class CertificateIntegrationTests
         Assert.Contains(settings.Thumbprint!, ex.Message);
 
         Assert.Throws<InvalidOperationException>(
-            () => new ConfigurationBuilder().AddKeyVaultReferenceResolver(options, logger: null));
+            () => WithReference(new ConfigurationBuilder()).AddKeyVaultReferenceResolver(options, logger: null));
+    }
+
+    [Fact]
+    public void ClientCertificate_NotInStore_DoesNotFailWhenNothingReferencesAVault()
+    {
+        var settings = new CertificateStoreCredentialOptions(Tenant, "client", Guid.NewGuid().ToString("N") + "ABCDEF01");
+        var options = new KeyVaultReferenceResolverOptions { ClientCertificate = settings };
+
+        // The resolver, and with it the certificate, is only built once there is a reference to resolve.
+        new ConfigurationBuilder().AddKeyVaultReferenceResolver(options, logger: null);
+    }
+
+    [Fact]
+    public void Convention_StaysOutOfTheWay_ForADeliberateManagedIdentityOrTenant()
+    {
+        WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", "client") }, () =>
+        {
+            Assert.True(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions()));
+            Assert.True(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { TenantId = Tenant.ToUpperInvariant() }));
+            Assert.False(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { ManagedIdentityClientId = "mi-client" }));
+            Assert.False(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { TenantId = "another-tenant" }));
+            Assert.False(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { ExcludeEnvironmentCredential = true }));
+        });
+    }
+
+    private static ConfigurationBuilder WithReference(ConfigurationBuilder builder)
+    {
+        builder.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Key"] = "@Microsoft.KeyVault(SecretUri=https://vault.vault.azure.net/secrets/name)"
+        });
+        return builder;
     }
 
     [Fact]
@@ -237,7 +269,7 @@ public class CertificateIntegrationTests
                 if (expired)
                 {
                     var ex = Assert.Throws<InvalidOperationException>(
-                        () => new ConfigurationBuilder().AddKeyVaultReferenceResolver());
+                        () => WithReference(new ConfigurationBuilder()).AddKeyVaultReferenceResolver());
                     Assert.Contains("expired", ex.Message);
                 }
                 else

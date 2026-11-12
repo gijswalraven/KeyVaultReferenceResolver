@@ -8,6 +8,12 @@ on:
 # holds the credentials that can change anything outside this run.
 permissions: {}
 
+env:
+  # The one list of packages in a release, in publish order: each after the ones it depends on
+  # (KeyVaultReferenceResolver depends on CertificateStoreCredential, HashiCorp on the resolver).
+  # A glob would push in file-name order and could publish a package before its dependency.
+  PACKAGE_IDS: CertificateStoreCredential KeyVaultReferenceResolver KeyVaultReferenceResolver.HashiCorp
+
 jobs:
   # Builds, tests and packs with no credentials in scope. Everything that executes project
   # code - restore targets, the compiler, the test assemblies, the SBOM tool - runs here,
@@ -75,7 +81,7 @@ jobs:
       - name: Verify the release contains every package
         run: |
           set -euo pipefail
-          for id in CertificateStoreCredential KeyVaultReferenceResolver KeyVaultReferenceResolver.HashiCorp; do
+          for id in $PACKAGE_IDS; do
             files=(./artifacts/"$id".[0-9]*.nupkg)
             if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
               echo "::error::Expected exactly one package for $id in ./artifacts"
@@ -84,6 +90,34 @@ jobs:
             fi
             echo "Found ${files[0]}"
           done
+
+      # KeyVaultReferenceResolver names the CertificateStoreCredential version range it needs. The
+      # range is derived from the project at pack time, hooking a private SDK target, so check what
+      # was actually packed: the CertificateStoreCredential built here must satisfy it, and the
+      # range must be bounded. Otherwise nuget.org would receive a package that cannot be restored.
+      - name: Verify the dependency range of the packed resolver
+        run: |
+          set -euo pipefail
+          dep=(./artifacts/CertificateStoreCredential.[0-9]*.nupkg)
+          res=(./artifacts/KeyVaultReferenceResolver.[0-9]*.nupkg)
+          dep_version="$(basename "${dep[0]}" .nupkg)"
+          dep_version="${dep_version#CertificateStoreCredential.}"
+          range="$(unzip -p "${res[0]}" KeyVaultReferenceResolver.nuspec             | grep -oP '<dependency id="CertificateStoreCredential" version="\K[^"]+')"
+          echo "CertificateStoreCredential $dep_version, resolver requires $range"
+          if ! [[ "$range" =~ ^\[([0-9.]+),\ *([0-9.]+)\)$ ]]; then
+            echo "::error::Expected a bounded range [lower, upper) for CertificateStoreCredential, got '$range'"
+            exit 1
+          fi
+          lower="${BASH_REMATCH[1]}"
+          upper="${BASH_REMATCH[2]}"
+          if [ "$(printf '%s
+%s
+' "$lower" "$dep_version" | sort -V | head -n1)" != "$lower" ]              || [ "$(printf '%s
+%s
+' "$dep_version" "$upper" | sort -V | head -n1)" != "$dep_version" ]              || [ "$dep_version" = "$upper" ]; then
+            echo "::error::CertificateStoreCredential $dep_version is outside the range $range the resolver requires"
+            exit 1
+          fi
 
       # An SBOM lets a consumer enumerate the transitive closure - Azure.Identity, VaultSharp
       # and everything under them - without restoring the package themselves.
@@ -220,7 +254,7 @@ jobs:
       - name: Publish to NuGet.org
         run: |
           set -euo pipefail
-          for id in CertificateStoreCredential KeyVaultReferenceResolver KeyVaultReferenceResolver.HashiCorp; do
+          for id in $PACKAGE_IDS; do
             files=(./artifacts/"$id".[0-9]*.nupkg)
             if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
               echo "::error::Expected exactly one package for $id in ./artifacts"
@@ -235,7 +269,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          for id in CertificateStoreCredential KeyVaultReferenceResolver KeyVaultReferenceResolver.HashiCorp; do
+          for id in $PACKAGE_IDS; do
             files=(./artifacts/"$id".[0-9]*.nupkg)
             if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
               echo "::error::Expected exactly one package for $id in ./artifacts"
