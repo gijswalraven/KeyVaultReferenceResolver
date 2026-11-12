@@ -8,6 +8,12 @@ on:
 # holds the credentials that can change anything outside this run.
 permissions: {}
 
+env:
+  # The one list of packages in a release, in publish order: each after the ones it depends on
+  # (KeyVaultReferenceResolver depends on CertificateStoreCredential, HashiCorp on the resolver).
+  # A glob would push in file-name order and could publish a package before its dependency.
+  PACKAGE_IDS: CertificateStoreCredential KeyVaultReferenceResolver KeyVaultReferenceResolver.HashiCorp
+
 jobs:
   # Builds, tests and packs with no credentials in scope. Everything that executes project
   # code - restore targets, the compiler, the test assemblies, the SBOM tool - runs here,
@@ -36,6 +42,8 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           tag="$RELEASE_TAG"
+          # The tag names the KeyVaultReferenceResolver release. CertificateStoreCredential has its own
+          # version and is not tagged separately; it is published first, see the publish job.
           csproj="src/KeyVaultReferenceResolver/KeyVaultReferenceResolver.csproj"
           version="$(grep -oPm1 '(?<=<Version>)[^<]+' "$csproj")"
           if [ -z "$version" ]; then
@@ -47,6 +55,16 @@ jobs:
             exit 1
           fi
           echo "Tag '$tag' matches package version '$version'."
+
+          # KeyVaultReferenceResolver.HashiCorp moves in lockstep with the resolver. Its csproj is
+          # edited by hand like the other, so a forgotten bump would publish an old HashiCorp (or
+          # skip it as a duplicate) under a new tag.
+          hashicorp="src/KeyVaultReferenceResolver.HashiCorp/KeyVaultReferenceResolver.HashiCorp.csproj"
+          hashicorp_version="$(grep -oPm1 '(?<=<Version>)[^<]+' "$hashicorp")"
+          if [ "$hashicorp_version" != "$version" ]; then
+            echo "::error::<Version> '$hashicorp_version' in $hashicorp does not match '$version' in $csproj; the two packages move in lockstep"
+            exit 1
+          fi
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -67,6 +85,68 @@ jobs:
       - name: Pack
         run: dotnet pack --no-build -c Release -o ./artifacts
 
+      # Three packages are released together. KeyVaultReferenceResolver depends on
+      # CertificateStoreCredential, which is versioned on its own, so a release that is missing
+      # it would publish a package whose dependency does not exist on nuget.org.
+      - name: Verify the release contains every package
+        run: |
+          set -euo pipefail
+          for id in $PACKAGE_IDS; do
+            files=(./artifacts/"$id".[0-9]*.nupkg)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "::error::Expected exactly one package for $id in ./artifacts"
+              ls ./artifacts
+              exit 1
+            fi
+            echo "Found ${files[0]}"
+          done
+
+      # KeyVaultReferenceResolver names the CertificateStoreCredential version range it needs. The
+      # range is derived from the project at pack time, hooking a private SDK target, so check what
+      # was actually packed: the CertificateStoreCredential built here must satisfy it, and the
+      # range must be bounded. Otherwise nuget.org would receive a package that cannot be restored.
+      - name: Verify the dependency range of the packed resolver
+        run: |
+          set -euo pipefail
+          dep=(./artifacts/CertificateStoreCredential.[0-9]*.nupkg)
+          res=(./artifacts/KeyVaultReferenceResolver.[0-9]*.nupkg)
+          dep_version="$(basename "${dep[0]}" .nupkg)"
+          dep_version="${dep_version#CertificateStoreCredential.}"
+
+          nuspec="$(unzip -p "${res[0]}" KeyVaultReferenceResolver.nuspec)"
+          # Every dependency element for the package, whatever its attribute order; one distinct range.
+          ranges="$(printf '%s\n' "$nuspec" \
+            | { grep -oP '<dependency [^>]*id="CertificateStoreCredential"[^>]*>' || true; } \
+            | { grep -oP '\bversion="\K[^"]+' || true; } \
+            | sort -u)"
+          if [ -z "$ranges" ] || [ "$(printf '%s\n' "$ranges" | wc -l)" -ne 1 ]; then
+            echo "::error::Expected exactly one CertificateStoreCredential dependency range in the packed nuspec, found: '${ranges//$'\n'/ | }'"
+            exit 1
+          fi
+          range="$ranges"
+          echo "CertificateStoreCredential $dep_version, resolver requires $range"
+
+          if ! [[ "$range" =~ ^\[([0-9A-Za-z.+-]+),\ *([0-9A-Za-z.+-]+)\)$ ]]; then
+            echo "::error::Expected a bounded range [lower, upper) for CertificateStoreCredential, got '$range'"
+            exit 1
+          fi
+          lower="${BASH_REMATCH[1]}"
+          upper="${BASH_REMATCH[2]}"
+
+          # Numeric part only (a prerelease label sorts wrongly under sort -V); equality with the
+          # lower bound is checked on the full version, since the range is built from it.
+          core() { printf '%s' "${1%%[-+]*}"; }
+          not_after() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+
+          if [ "$dep_version" != "$lower" ] && ! not_after "$(core "$lower")" "$(core "$dep_version")"; then
+            echo "::error::CertificateStoreCredential $dep_version is below the range $range the resolver requires"
+            exit 1
+          fi
+          if [ "$(core "$dep_version")" = "$(core "$upper")" ] || ! not_after "$(core "$dep_version")" "$(core "$upper")"; then
+            echo "::error::CertificateStoreCredential $dep_version is not below the upper bound of the range $range the resolver requires"
+            exit 1
+          fi
+
       # An SBOM lets a consumer enumerate the transitive closure - Azure.Identity, VaultSharp
       # and everything under them - without restoring the package themselves.
       - name: Generate SBOM
@@ -75,7 +155,7 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           dotnet tool restore
-          dotnet dotnet-CycloneDX KeyVaultReferenceResolver.sln \
+          dotnet dotnet-CycloneDX KeyVaultReferenceResolver.slnx \
             --output ./sbom \
             --filename KeyVaultReferenceResolver-sbom.cdx.json \
             --output-format Json \
@@ -194,14 +274,69 @@ jobs:
           # listed owner of the packages -- so it is not a secret.
           user: GijsWalraven
 
+      # Fixed order, each package after the ones it depends on: CertificateStoreCredential, then
+      # KeyVaultReferenceResolver (which depends on it), then KeyVaultReferenceResolver.HashiCorp
+      # (which depends on KeyVaultReferenceResolver). A glob would push in file-name order and could
+      # publish a package before its dependency. --skip-duplicate makes a release that does not bump
+      # CertificateStoreCredential skip it instead of failing.
+      #
+      # After each push, wait until nuget.org lists the version before pushing the next package.
+      # A push returns once the package is accepted, not once it is validated and indexed; a
+      # dependent package pushed in that window can be rejected, leaving the release half published.
       - name: Publish to NuGet.org
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: |
+          set -euo pipefail
+
+          # nuget.org lists normalized versions: lower case, no build metadata, and a zero fourth
+          # part dropped (1.0.0.0 is listed as 1.0.0).
+          normalize_version() {
+            printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/\+.*$//; s/^([0-9]+\.[0-9]+\.[0-9]+)\.0(-|$)/\1\2/'
+          }
+
+          wait_until_listed() {
+            local id version listing
+            id="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+            version="$(normalize_version "$2")"
+            for _ in $(seq 1 60); do
+              # The index is read in full before grep looks at it: with `curl | grep -q`, grep
+              # exits on the first match, curl gets SIGPIPE (exit 23) and pipefail calls it a failure.
+              listing="$(curl -fsS "https://api.nuget.org/v3-flatcontainer/$id/index.json" 2>/dev/null || true)"
+              if grep -qF "\"$version\"" <<< "$listing"; then
+                echo "$1 $2 is listed on nuget.org."
+                return 0
+              fi
+              sleep 10
+            done
+            echo "::error::$1 $2 was not listed on nuget.org after 10 minutes; not pushing the packages that depend on it"
+            return 1
+          }
+
+          for id in $PACKAGE_IDS; do
+            files=(./artifacts/"$id".[0-9]*.nupkg)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "::error::Expected exactly one package for $id in ./artifacts"
+              exit 1
+            fi
+            version="$(basename "${files[0]}" .nupkg)"
+            version="${version#"$id".}"
+            dotnet nuget push "${files[0]}" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+            wait_until_listed "$id" "$version"
+          done
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
 
       - name: Publish to GitHub Packages
         continue-on-error: true
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key "$GITHUB_TOKEN" --source "https://nuget.pkg.github.com/$REPOSITORY_OWNER/index.json" --skip-duplicate
+        run: |
+          set -euo pipefail
+          for id in $PACKAGE_IDS; do
+            files=(./artifacts/"$id".[0-9]*.nupkg)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "::error::Expected exactly one package for $id in ./artifacts"
+              exit 1
+            fi
+            dotnet nuget push "${files[0]}" --api-key "$GITHUB_TOKEN" --source "https://nuget.pkg.github.com/$REPOSITORY_OWNER/index.json" --skip-duplicate
+          done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}

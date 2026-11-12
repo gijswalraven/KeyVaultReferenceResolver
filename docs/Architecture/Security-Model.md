@@ -184,6 +184,8 @@ Interactive browser is excluded unconditionally: a non-interactive startup path 
 
 `ExcludeEnvironmentCredential` defaults to **false** for 1.x compatibility, and this is the weakest default in the library. The environment credential sits *ahead of* managed identity in the chain, so anything that can set `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` in the process environment redirects all vault access to an identity of its choosing. Set it to `true` whenever the workload authenticates with a managed or workload identity — which is to say, in essentially every Azure deployment.
 
+The store-certificate convention (a certificate named after `AZURE_CLIENT_ID`, picked up when `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set) takes its identity from the same environment, so `ExcludeEnvironmentCredential = true` switches it off too. The explicit `ClientCertificate` setting works the same way with or without a thumbprint (without one, the certificate naming the client ID is used), and unlike the convention it fails when no certificate is found. It adds little attack surface by itself: a planted certificate only authenticates if its public key is registered on that service principal in Entra ID, and the private key never leaves the store.
+
 The HashiCorp side has the analogous hazard in its auth auto-detection order (`VAULT_TOKEN` before AppRole before Kubernetes), which is why it logs which method won. See [Vault-Authentication-Methods.md](../Features/Vault-Authentication-Methods.md).
 
 ### ReDoS bounds

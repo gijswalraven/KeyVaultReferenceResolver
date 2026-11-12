@@ -7,6 +7,7 @@ using Azure;
 using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
+using CertificateStoreCredentials;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -18,6 +19,7 @@ namespace KeyVaultReferenceResolver
     public class KeyVaultSecretResolver : ISecretResolver, IDisposable
     {
         private readonly TokenCredential _credential;
+        private readonly CertificateStoreCredential? _certificateCredential;
         private readonly KeyVaultReferenceResolverOptions _options;
         private readonly ILogger _logger;
         private readonly ConcurrentDictionary<string, SecretClient> _secretClients = new ConcurrentDictionary<string, SecretClient>();
@@ -36,12 +38,95 @@ namespace KeyVaultReferenceResolver
         public KeyVaultSecretResolver(
             KeyVaultReferenceResolverOptions? options = null,
             ILogger? logger = null)
+            : this(options, logger, applyEnvironmentConvention: false)
+        {
+        }
+
+        /// <summary>
+        /// Creates a resolver. With <paramref name="applyEnvironmentConvention"/>, and absent an
+        /// explicit credential or <c>ClientCertificate</c>, a store certificate that names
+        /// <c>AZURE_CLIENT_ID</c> is used if there is one. The extension methods ask for this; a
+        /// resolver constructed directly never reads the environment for an identity.
+        /// </summary>
+        internal KeyVaultSecretResolver(
+            KeyVaultReferenceResolverOptions? options,
+            ILogger? logger,
+            bool applyEnvironmentConvention)
         {
             _options = options ?? new KeyVaultReferenceResolverOptions();
             _options.Validate();
-            _credential = _options.Credential ?? CreateDefaultCredential(_options);
             _logger = logger ?? NullLogger.Instance;
+
+            // Precedence: an explicit Credential, then ClientCertificate, then the environment
+            // convention, then the default chain. A store certificate is validated here, at
+            // construction, so a missing, key-less or expired certificate fails at startup with a
+            // clear message instead of on the first vault call.
+            try
+            {
+                if (_options.Credential != null)
+                {
+                    _credential = _options.Credential;
+                }
+                else if (_options.ClientCertificate != null)
+                {
+                    _certificateCredential = CertificateStoreCredential.Create(
+                        _options.ClientCertificate, BuildClientCertificateCredentialOptions(_options));
+                    _credential = _certificateCredential;
+                }
+                else
+                {
+                    if (applyEnvironmentConvention && ConventionApplies(_options))
+                    {
+                        // The convention is opt-in by coincidence: AZURE_CLIENT_ID is also set for
+                        // user-assigned managed identities, so a stale certificate that happens to name
+                        // it must not take the application down. Unlike an explicit ClientCertificate,
+                        // which is required, it warns and leaves the default chain in charge.
+                        try
+                        {
+                            _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
+                                BuildClientCertificateCredentialOptions(_options), _options.TenantId);
+                            if (_certificateCredential != null)
+                                Log.ClientCertificateFromEnvironment(_logger);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            Log.ClientCertificateFromEnvironmentUnusable(_logger, ex.Message);
+                        }
+                    }
+
+                    _credential = (TokenCredential?)_certificateCredential ?? CreateDefaultCredential(_options);
+                }
+            }
+            catch
+            {
+                // The certificate credential owns a loaded certificate; a constructor that throws
+                // returns no object for anyone to dispose.
+                _certificateCredential?.Dispose();
+                throw;
+            }
         }
+
+        /// <summary>
+        /// Whether the environment convention may pick the identity. It stays out of the way when the
+        /// options already make a deliberate choice that the environment would override:
+        /// <c>ExcludeEnvironmentCredential</c> (opts out of taking an identity from the environment),
+        /// an explicit <c>ManagedIdentityClientId</c> (a managed identity was chosen). A <c>TenantId</c> that differs
+        /// from <c>AZURE_TENANT_ID</c> is handled by the credential package, which owns the environment
+        /// rules; it is passed to it.
+        /// </summary>
+        internal static bool ConventionApplies(KeyVaultReferenceResolverOptions options)
+        {
+            if (options.ExcludeEnvironmentCredential)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>The credential in use, for tests that assert on which one was chosen.</summary>
+        internal TokenCredential Credential => _credential;
 
         /// <inheritdoc />
         public Task<string> ResolveSecretAsync(string secretUri, CancellationToken cancellationToken = default)
@@ -204,6 +289,7 @@ namespace KeyVaultReferenceResolver
             {
                 _secretCache.Clear();
                 _secretClients.Clear();
+                _certificateCredential?.Dispose();
             }
 
             _disposed = true;
@@ -328,6 +414,41 @@ namespace KeyVaultReferenceResolver
                 default:
                     return $"Failed to read {masked} from Key Vault (HTTP {ex.Status}).";
             }
+        }
+
+        /// <summary>
+        /// Builds the options of the store-certificate credential from the resolver options, so that
+        /// authority host, additionally allowed tenants and retry behaviour mean the same for it as for
+        /// the default chain. Token acquisition runs inside the per-secret
+        /// <see cref="KeyVaultReferenceResolverOptions.Timeout"/> and the
+        /// <see cref="KeyVaultReferenceResolverOptions.OverallTimeout"/>, so an unreachable Entra ID or
+        /// vault surfaces as a timeout rather than a hang. Internal so it can be asserted on directly.
+        /// </summary>
+        internal static ClientCertificateCredentialOptions BuildClientCertificateCredentialOptions(
+            KeyVaultReferenceResolverOptions options)
+        {
+            var credentialOptions = new ClientCertificateCredentialOptions();
+
+            if (options.AuthorityHost != null)
+                credentialOptions.AuthorityHost = options.AuthorityHost;
+
+            if (options.AdditionallyAllowedTenants != null)
+            {
+                foreach (var tenant in options.AdditionallyAllowedTenants)
+                    credentialOptions.AdditionallyAllowedTenants.Add(tenant);
+            }
+
+            var retry = options.ClientOptions?.Retry;
+            if (retry != null)
+            {
+                credentialOptions.Retry.MaxRetries = retry.MaxRetries;
+                credentialOptions.Retry.Delay = retry.Delay;
+                credentialOptions.Retry.MaxDelay = retry.MaxDelay;
+                credentialOptions.Retry.Mode = retry.Mode;
+                credentialOptions.Retry.NetworkTimeout = retry.NetworkTimeout;
+            }
+
+            return credentialOptions;
         }
 
         private static DefaultAzureCredential CreateDefaultCredential(KeyVaultReferenceResolverOptions options)

@@ -301,6 +301,7 @@ Better still, do not resolve real secrets in CI at all. Use `FakeSecretResolver`
 | AKS (Key Vault) | Workload identity | `ExcludeEnvironmentCredential = true`; optionally explicit `WorkloadIdentityCredential` |
 | AKS (Vault) | K8s service account | `VaultAddress`, `AuthMethod = KubernetesAuthMethod.FromFile(role)`, `KvVersion` |
 | Azure VM | Managed identity | `ExcludeEnvironmentCredential = true` |
+| Windows VM, no managed identity | Service principal with a non-exportable store certificate | `ClientCertificate = new(tenantId, clientId)`, or `AZURE_TENANT_ID` + `AZURE_CLIENT_ID` with a certificate named after the client ID; see [Client-Certificate-Authentication-HOWTO.md](Client-Certificate-Authentication-HOWTO.md) |
 | Container outside Azure | Service principal / OIDC | leave `ExcludeEnvironmentCredential = false`, or mount the secret as a file |
 | Local dev (Azure) | Azure CLI | `AllowDeveloperCredentials = IsDevelopment()` |
 | Local dev (Vault) | `VAULT_TOKEN` | `AllowInsecureTransport = IsDevelopment()` |

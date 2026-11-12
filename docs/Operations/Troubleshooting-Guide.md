@@ -27,6 +27,10 @@ graph LR
 
 The right-hand branches are the two silent cases, and they are distinct. A `null` value means resolution ran and failed. A value that still contains `@Microsoft.KeyVault(...)` means resolution never saw it — a registration-order problem, not a vault problem.
 
+### Startup errors arrive wrapped
+
+Called through `AddKeyVaultReferenceResolver`, every per-secret failure (authentication, timeout, 403, 404, the overall budget) reaches the application as a `KeyVaultReferenceResolutionException` with the generic message `Failed to resolve Key Vault reference for configuration key 'X'`. **The real cause is in `InnerException`**, and the exception type names below describe that inner exception. Log it in full (`ex.ToString()`), not just `ex.Message`. Store-certificate errors are the exception: they are thrown unwrapped, before any vault call.
+
 ## Azure Key Vault failures
 
 ### "Access denied reading ... (HTTP 403)"
@@ -92,7 +96,7 @@ The per-secret `Timeout` elapsed. Distinct from a 403 or 404: the vault did not 
 - **A proxy that needs configuring.** Set `ClientOptions.Transport`.
 - **Genuinely slow vault** under heavy load; raise `Timeout`.
 
-If `OverallTimeout` elapses instead, the in-flight reads are cancelled and surface as `OperationCanceledException` rather than `TimeoutException` — a sign that the *total* budget ran out, usually because many references are unreachable.
+If `OverallTimeout` elapses instead, the in-flight reads are cancelled and surface as `OperationCanceledException` (in practice a `TaskCanceledException`) rather than `TimeoutException` — a sign that the *total* budget ran out, usually because many references are unreachable.
 
 ### "Vault host '...' is not an allowed Key Vault host"
 
@@ -110,6 +114,23 @@ options.AllowedVaultHostSuffixes.Add(".vault.contoso-private.net");
 ```
 
 If the host is genuinely unexpected, treat it as a tampered configuration source and investigate where the value came from.
+
+### "Vault host '...' is not listed in KeyVaultReferenceResolverOptions.AllowedVaultHosts"
+
+An `ArgumentException`: the host passed the suffix check but is not in `AllowedVaultHosts`, the list that pins resolution to the vaults you own. Add the exact host name to `AllowedVaultHosts` if it is yours; if it is not, a reference names a vault it should not, so find where the value came from. See [Production-Hardening-Checklist-HOWTO.md](../Operations/Production-Hardening-Checklist-HOWTO.md).
+
+### Store client certificate errors
+
+These are thrown as `InvalidOperationException` when the resolver is created, before any vault call. Each names the thumbprint (or client ID), the store and the process user.
+
+| Message starts with | Cause and fix |
+| --- | --- |
+| `No client certificate whose subject or friendly name contains the client ID ...` | `new CertificateStoreCredentialOptions(tenantId, clientId)` found no certificate naming the client ID. Check the subject and the account whose store holds it. |
+| `The client certificate with thumbprint ... was not found` | Wrong thumbprint, or the certificate is in another account's store. |
+| `... has no private key, or this account cannot access it` | Imported without its key, or a machine-store key without Read for the run-as account. |
+| `... expired on <date>` / `... is not valid before <date>` | Rotate the certificate, or check the machine clock (5 minutes of skew are tolerated). |
+
+Step by step: [Client-Certificate-Authentication-HOWTO.md](../Deployment/Client-Certificate-Authentication-HOWTO.md).
 
 ### "Key Vault secret URIs must use https"
 
@@ -237,13 +258,14 @@ If `ThrowOnResolveFailure` is `false`, this is the *only* signal, and the applic
 Resolution never saw that value. This is **not** the fail-closed path — the library never leaves a reference in place after attempting it.
 
 1. **Registration order.** The resolver only scans sources added *before* it. Move the call after every source that may contain references.
-2. **A source added after the resolver** is shadowing the resolved value.
+2. **A source added after the resolver** is shadowing the resolved value. When such a source still carries a reference, building the configuration throws a `KeyVaultReferenceResolutionException` naming the keys, and logs event 1006 for each (event 1005 when the later sources cannot be inspected). Overriding a resolved secret with a literal value is allowed, and a later `AddEnvironmentVariables` or `AddCommandLine` is fine.
 3. **App Service native references.** The platform resolves its own before the application starts; if it did not, the string remains and the library never ran. Pick one mechanism.
 4. **A compound value on the HashiCorp side.** HashiCorp references must be the whole value — an embedded one is not recognised. Azure references can be embedded.
 
 ### An option appears to have no effect
 
 - **`options.Credential` is set.** It silently makes `ManagedIdentityClientId`, `TenantId`, `AuthorityHost`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` inert.
+- **`options.ClientCertificate` is set** (or the environment convention selected a store certificate). The store certificate is used instead of the default chain, so `ManagedIdentityClientId`, `TenantId`, `AllowDeveloperCredentials` and `ExcludeEnvironmentCredential` are inert for the credential. With the convention, `ExcludeEnvironmentCredential = true` instead *switches the convention off*.
 - **`options.AuthMethod` is set.** Auto-detection and `KubernetesRoleName` are skipped.
 - **`InvalidateCache` on the wrong instance.** The extension method builds its own resolver internally and does not expose it. Refresh only works on a resolver you registered in DI.
 - **`CacheTtl` or `InvalidateCache` on `IConfiguration` values.** They cannot change values already materialised at startup. Only a restart does.
@@ -267,6 +289,10 @@ From `Validate()`, naming the offending property:
 | `MaxConcurrency` | at least 1 |
 
 To disable caching entirely, use `EnableCaching = false` — a zero `CacheTtl` is rejected.
+
+### Which configuration key failed
+
+`KeyVaultReferenceResolutionException` carries the failing key in `ConfigurationKey`, next to the masked URI in the message, so a handler can report which setting is affected without parsing the text.
 
 ### Tests fail intermittently
 
