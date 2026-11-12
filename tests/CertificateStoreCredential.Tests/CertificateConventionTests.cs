@@ -97,6 +97,8 @@ public class CertificateConventionTests
     [InlineData("AZURE_CLIENT_SECRET")]
     [InlineData("AZURE_CLIENT_CERTIFICATE_PATH")]
     [InlineData("AZURE_FEDERATED_TOKEN_FILE")]
+    [InlineData("AZURE_USERNAME")]
+    [InlineData("AZURE_PASSWORD")]
     public void AnotherConfiguredMechanism_KeepsTheConventionOut(string variable)
     {
         Assert.Null(CertificateStoreLoader.FromEnvironment(
@@ -159,5 +161,25 @@ public class CertificateConventionTests
             Stores(localMachine: new[] { certificate }), DateTimeOffset.UtcNow);
 
         Assert.Equal(StoreLocation.LocalMachine, settings!.StoreLocation);
+    }
+
+    /// <summary>
+    /// A stale certificate in CurrentUser must not mask a valid one in LocalMachine: that is what
+    /// rotation leaves behind when the renewed certificate lands in the machine store.
+    /// </summary>
+    [Fact]
+    public void ValidCertificateInLocalMachine_BeatsAnExpiredOneInCurrentUser()
+    {
+        using var expired = Cert("CN=" + Client, TimeSpan.FromDays(-400), TimeSpan.FromDays(-35));
+        using var valid = ValidCert("CN=" + Client);
+        var validThumbprint = valid.Thumbprint;
+
+        var settings = CertificateStoreLoader.FromEnvironment(
+            Env(("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", Client)),
+            Stores(currentUser: new[] { expired }, localMachine: new[] { valid }),
+            DateTimeOffset.UtcNow);
+
+        Assert.Equal(validThumbprint, settings!.Thumbprint);
+        Assert.Equal(StoreLocation.LocalMachine, settings.StoreLocation);
     }
 }

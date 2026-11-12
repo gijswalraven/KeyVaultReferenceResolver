@@ -63,7 +63,11 @@ namespace CertificateStoreCredentials
         {
             "AZURE_CLIENT_SECRET",
             "AZURE_CLIENT_CERTIFICATE_PATH",
-            "AZURE_FEDERATED_TOKEN_FILE"
+            "AZURE_FEDERATED_TOKEN_FILE",
+            // Username/password (ROPC): the fourth mode EnvironmentCredential supports. A user
+            // identity is not the service principal, so the convention stays out of the way.
+            "AZURE_USERNAME",
+            "AZURE_PASSWORD"
         };
 
         /// <summary>
@@ -82,7 +86,8 @@ namespace CertificateStoreCredentials
         /// </returns>
         /// <remarks>
         /// Among matches, a certificate that is valid and has a private key wins, then the one that
-        /// expires last, so a renewed certificate is picked up without any configuration change. If
+        /// expires last, so a renewed certificate is picked up without any configuration change. A
+        /// usable match in any searched location wins over an unusable one in an earlier location. If
         /// every match is unusable the best one is still returned, and <see cref="Load"/> then fails with
         /// the specific reason (expired, no private key, ...) rather than silently falling back to a
         /// credential chain that would fail less clearly.
@@ -118,21 +123,31 @@ namespace CertificateStoreCredentials
             Func<StoreLocation, X509Certificate2Collection> candidatesFor,
             DateTimeOffset now)
         {
+            // The best unusable match, used only when no location holds a usable one, so that Load
+            // fails with the specific reason rather than falling back to the default chain.
+            CertificateStoreCredentialOptions? fallback = null;
+
             foreach (var location in locations)
             {
                 var all = candidatesFor(location).Cast<X509Certificate2>().ToList();
                 try
                 {
-                    var best = all
-                        .Where(c => Names(c, clientId))
-                        .OrderByDescending(c => c.HasPrivateKey
-                                                && new DateTimeOffset(c.NotBefore) <= now + ClockSkew
-                                                && new DateTimeOffset(c.NotAfter) > now)
-                        .ThenByDescending(c => c.NotAfter)
+                    var matches = all.Where(c => Names(c, clientId)).ToList();
+
+                    var usable = matches
+                        .Where(c => IsUsable(c, now))
+                        .OrderByDescending(c => c.NotAfter)
                         .FirstOrDefault();
 
-                    if (best != null)
-                        return new CertificateStoreCredentialOptions(tenantId, clientId, best.Thumbprint, location);
+                    if (usable != null)
+                        return new CertificateStoreCredentialOptions(tenantId, clientId, usable.Thumbprint, location);
+
+                    if (fallback == null)
+                    {
+                        var best = matches.OrderByDescending(c => c.NotAfter).FirstOrDefault();
+                        if (best != null)
+                            fallback = new CertificateStoreCredentialOptions(tenantId, clientId, best.Thumbprint, location);
+                    }
                 }
                 finally
                 {
@@ -141,7 +156,7 @@ namespace CertificateStoreCredentials
                 }
             }
 
-            return null;
+            return fallback;
         }
 
         /// <summary>
@@ -193,6 +208,14 @@ namespace CertificateStoreCredentials
         {
             return certificate.Subject.IndexOf(clientId, StringComparison.OrdinalIgnoreCase) >= 0
                    || certificate.FriendlyName.IndexOf(clientId, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>Has an accessible private key and is inside its validity window.</summary>
+        private static bool IsUsable(X509Certificate2 certificate, DateTimeOffset now)
+        {
+            return certificate.HasPrivateKey
+                   && new DateTimeOffset(certificate.NotBefore) <= now + ClockSkew
+                   && new DateTimeOffset(certificate.NotAfter) > now;
         }
 
         internal static bool IsHex(string value)
@@ -298,8 +321,7 @@ namespace CertificateStoreCredentials
                     }
                     else
                     {
-                        chosen = withKey.Where(c => new DateTimeOffset(c.NotBefore) <= now + ClockSkew
-                                                    && new DateTimeOffset(c.NotAfter) > now)
+                        chosen = withKey.Where(c => IsUsable(c, now))
                                         .OrderByDescending(c => c.NotAfter)
                                         .FirstOrDefault();
                         if (chosen == null)
