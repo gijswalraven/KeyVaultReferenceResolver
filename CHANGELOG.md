@@ -10,10 +10,10 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
-## [2.2.0]
+## [3.0.0]
 
-`KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` 2.2.0 (HashiCorp itself has no changes; it
-moves in lockstep), with `CertificateStoreCredential` 1.1.0.
+`KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` 3.0.0 (HashiCorp itself has no changes; it
+moves in lockstep), with `CertificateStoreCredential` 2.0.0. This is a major release because public API is removed.
 
 ### Removed
 
@@ -25,8 +25,8 @@ moves in lockstep), with `CertificateStoreCredential` 1.1.0.
 - **Migration:** where the convention was used, set `KeyVaultReferenceResolverOptions.ClientCertificate` instead
   (or call `CertificateStoreCredential.Create` for other tokens). `new CertificateStoreCredentialOptions(tenantId,
   clientId)` finds the certificate by client ID exactly as the convention did, valid-then-latest-expiry, so renewal
-  still needs no change; take the two IDs from your own configuration. Without it the default credential chain is
-  used, as before for hosts with no matching certificate. An unusable certificate now always throws at startup,
+  still needs no change; take the two IDs from your own configuration. **Upgrading without this change is silent:** a host that relied on the convention now uses the default
+  credential chain, with no warning, and may fail with an unrelated error or authenticate as another identity. An unusable certificate now always throws at startup,
   since it is named explicitly, instead of logging a warning and falling back.
 - `Azure.Identity`'s own `AZURE_*` handling is unchanged: `ExcludeEnvironmentCredential` still controls its
   `EnvironmentCredential`, and `AZURE_AUTHORITY_HOST` and `AZURE_ADDITIONALLY_ALLOWED_TENANTS` still apply.
@@ -572,7 +572,8 @@ resolution path in both packages.
 - Initial release: resolve `@Microsoft.KeyVault(SecretUri=...)` references in
   `Microsoft.Extensions.Configuration` anywhere, not just Azure App Service.
 
-[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.1.0...v3.0.0
 [2.1.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/gijswalraven/KeyVaultReferenceResolver/compare/v1.4.0...v2.0.0

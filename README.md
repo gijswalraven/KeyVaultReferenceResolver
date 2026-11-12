@@ -163,8 +163,10 @@ For a service principal whose certificate lives in the certificate store with a
 non-exportable private key (a Scheduled Task on a VM, no managed identity, no
 `az login`, nothing on disk):
 
-Name the service principal's certificate after its client ID (`CN=<client ID>`) and take the tenant and client ID from your own configuration. The certificate is *required*: a missing one, or an unusable one (expired, not yet valid, no accessible private key), always throws at startup. Nothing is read from `AZURE_*` environment variables to pick it.
-
+Name the service principal's certificate after its client ID (`CN=<client ID>`) and take the tenant and
+client ID from your own configuration. The certificate is *required*: a missing one, or an unusable one
+(expired, not yet valid, no accessible private key), always throws at startup. Nothing is read from
+`AZURE_*` environment variables to pick it.
 
 ```csharp
 builder.AddKeyVaultReferenceResolver(o =>
@@ -184,7 +186,8 @@ builder.AddKeyVaultReferenceResolver(o =>
 With a thumbprint, the certificate is searched in the `My` store of `CurrentUser` (or
 `LocalMachine`). Pasting the thumbprint from the Certificates snap-in works as is: spaces,
 colons, hyphens and the invisible U+200E it adds are removed. Without a thumbprint it is the
-certificate whose subject or friendly name contains the client ID. Among matches, one that is valid and has a private key wins, then the one that expires last, so renewal needs no change.
+certificate whose subject or friendly name contains the client ID. Among matches, one that is valid and
+has a private key wins, then the one that expires last, so renewal needs no change.
 
 The certificate is checked when the resolver is created, not on the first vault call. An
 `InvalidOperationException` names the thumbprint (or client ID), store and process user when the
