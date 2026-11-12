@@ -18,7 +18,7 @@ The design also takes a position on *when* to refresh. The default TTL is infini
 graph LR
     A["Startup<br/>AddKeyVaultReferenceResolver"] --> B["Resolver fetches secrets"]
     B --> C["Resolver cache<br/>ConcurrentDictionary"]
-    B --> D["AddInMemoryCollection"]
+    B --> D["ResolvedSecretsSource"]
     D --> E["IConfiguration<br/>frozen for process lifetime"]
     E --> F["config lookups<br/>never re-read"]
     C --> G["ISecretResolver injected<br/>into the app"]
@@ -148,18 +148,20 @@ Refresh on evidence, not on a timer. The evidence is usually a downstream authen
 public class DownstreamClient
 {
     private readonly ISecretResolver _resolver;
-    private const string ApiKeyRef = "@Microsoft.KeyVault(SecretUri=https://v.vault.azure.net/secrets/api-key)";
+    // ResolveSecretAsync takes the secret URI, not the @Microsoft.KeyVault(...) reference string.
+    // Keep the URI in configuration, or derive it with KeyVaultReferenceResolverExtensions.ExtractSecretUri(reference).
+    private const string ApiKeyUri = "https://v.vault.azure.net/secrets/api-key";
 
     public async Task<Response> CallAsync(CancellationToken ct)
     {
-        var key = await _resolver.ResolveSecretAsync(ApiKeyRef, ct);
+        var key = await _resolver.ResolveSecretAsync(ApiKeyUri, ct);
         var response = await SendAsync(key, ct);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             // The cached key may have been rotated. Re-read once and retry.
             var fresh = await ((KeyVaultSecretResolver)_resolver)
-                .ResolveSecretAsync(ApiKeyRef, forceRefresh: true, ct);
+                .ResolveSecretAsync(ApiKeyUri, forceRefresh: true, ct);
             response = await SendAsync(fresh, ct);
         }
 

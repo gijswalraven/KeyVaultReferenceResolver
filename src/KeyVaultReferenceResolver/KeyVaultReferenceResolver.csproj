@@ -8,8 +8,8 @@
 
     <!-- Package Information -->
     <PackageId>KeyVaultReferenceResolver</PackageId>
-    <Version>2.0.1</Version>
-    <PackageReleaseNotes>Patch release. Fixes ObjectDisposedException: 'ConfigurationManager' when AddKeyVaultReferenceResolver is called on Host.CreateApplicationBuilder().Configuration or WebApplication.CreateBuilder().Configuration - the default host builder of any .NET 6+ application. No API or behaviour changes otherwise.</PackageReleaseNotes>
+    <Version>2.1.0</Version>
+    <PackageReleaseNotes>Minor release. Adds authentication with a client certificate from the Windows certificate store: set options.ClientCertificate, or set AZURE_TENANT_ID and AZURE_CLIENT_ID and name a store certificate after the client ID. The certificate logic is the new CertificateStoreCredential package, which this package now depends on. No change unless a certificate that names AZURE_CLIENT_ID exists in the store.</PackageReleaseNotes>
     <Authors>Gijs Walraven</Authors>
     <Company>Gijs Walraven</Company>
     <Description>Resolve Azure Key Vault references in Microsoft.Extensions.Configuration using both @Microsoft.KeyVault(SecretUri=...) and @Microsoft.KeyVault(VaultName=...;SecretName=...) formats. Works locally, in Docker, Kubernetes, and anywhere - not just Azure App Service.</Description>
@@ -36,6 +36,26 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CertificateStoreCredential\CertificateStoreCredential.csproj" />
+  </ItemGroup>
+
+  <!--
+    The project reference is for development; the published package depends on the
+    CertificateStoreCredential package. Pack turns a project reference into "version >= its
+    version", with no upper bound, so a future major version of that package with breaking changes
+    would be accepted. This narrows the dependency to [its version, next major): the lower bound
+    follows the referenced project's own <Version>, so a release that starts using a newer API of it
+    cannot be restored against an older one, and a major bump moves the upper bound with it.
+    The release workflow asserts the packed nuspec, because this hooks a private SDK target.
+  -->
+  <Target Name="NarrowCertificateStoreCredentialRange" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'CertificateStoreCredential'"
+                                      ProjectVersion="[%(ProjectVersion), $([MSBuild]::Add($([System.Version]::Parse($([System.String]::Copy('%(ProjectVersion)').Split('-')[0])).Major), 1)).0.0)" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <!-- Internal members are exposed to the test project so that the credential and
