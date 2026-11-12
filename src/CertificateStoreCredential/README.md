@@ -14,39 +14,9 @@ It is also what [KeyVaultReferenceResolver](https://github.com/gijswalraven/KeyV
 dotnet add package CertificateStoreCredential
 ```
 
-## The developer experience: as close to a managed identity as it gets
-
-1. Set the two standard variables, `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`.
-2. Create a certificate with the client ID in its subject (non-exportable key, in `CurrentUser\My`).
-3. Write no certificate-specific code, and no thumbprint in configuration.
-
-```csharp
-using CertificateStoreCredentials;
-
-// null when the convention does not apply (see below), so a laptop falls back to the default chain.
-TokenCredential credential =
-    (TokenCredential?)CertificateStoreCredential.TryCreateFromEnvironment() ?? new DefaultAzureCredential();
-```
-
 ## Usage
 
-### By convention
-
-```csharp
-using CertificateStoreCredential? credential = CertificateStoreCredential.TryCreateFromEnvironment();
-```
-
-`TryCreateFromEnvironment()` looks in `CurrentUser\My`, then `LocalMachine\My`, for a certificate whose **subject or friendly name contains `AZURE_CLIENT_ID`** (case-insensitive). Among matches it prefers one that is currently valid and has a private key, then the one that expires last, so a renewed certificate is picked up without any change.
-
-It returns **`null`** (the convention does not apply) when:
-
-- `AZURE_TENANT_ID` or `AZURE_CLIENT_ID` is not set, or
-- no certificate names the client ID, or
-- `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set (another mechanism is configured).
-
-It **throws `InvalidOperationException`** when a certificate does name the client ID but is unusable (expired, not yet valid, or no accessible private key). That is deliberately not "does not apply": a broken setup must not look like an unconfigured one. (The `KeyVaultReferenceResolver` package, which sets `AZURE_CLIENT_ID` aside for managed identities, catches this, logs a warning and uses its default chain; code that calls this method directly decides for itself.)
-
-### Explicitly (certificate required)
+### Certificate required
 
 ```csharp
 // By client ID: the certificate whose subject or friendly name contains it.
@@ -59,7 +29,7 @@ using var credential = CertificateStoreCredential.Create(new CertificateStoreCre
 
 `Create` throws `InvalidOperationException` if the certificate is missing, has no accessible private key, has expired or is not yet valid. The certificate is found and validated **when the credential is created**, not on the first token request.
 
-Both factories have an overload taking a `ClientCertificateCredentialOptions` (authority host, additionally allowed tenants, retry settings) for the wrapped credential. Without it the Azure Identity defaults apply, including `AZURE_AUTHORITY_HOST`.
+`Create` has an overload taking a `ClientCertificateCredentialOptions` (authority host, additionally allowed tenants, retry settings) for the wrapped credential. Without it the Azure Identity defaults apply, including `AZURE_AUTHORITY_HOST`.
 
 ### Getting a token
 
@@ -104,11 +74,11 @@ The service principal also needs whatever access the target resource requires (f
 
 ## Rotation
 
-With the convention, nothing changes in the application:
+When the certificate is found by client ID, nothing changes in the application:
 
 1. Create a new certificate with the same `CN=<client id>`, well before the old one expires.
 2. Upload its public key with `--append`.
-3. Restart the application. The valid certificate that expires last is picked.
+3. Restart the application. Among matches, a valid certificate with a private key wins, then the one that expires last.
 4. Once every machine has switched, remove the old certificate from Entra ID and from the store.
 
 With a thumbprint, update the thumbprint at step 3. An expired certificate stops the application at startup with a clear message, by design, so keep the expiry date in a calendar.
@@ -129,8 +99,8 @@ Token failures from Entra ID come from Azure.Identity, for example `AADSTS700027
 
 ## Limitations
 
-- The certificate store is a Windows concept. On other platforms the lookup works where .NET provides a `My` store and otherwise fails with the same `InvalidOperationException`, or, for the convention, returns `null`.
-- `TryCreateFromEnvironment()` takes only the standard variables. There is deliberately no thumbprint variable.
+- The certificate store is a Windows concept. On other platforms the lookup works where .NET provides a `My` store and otherwise fails with the same `InvalidOperationException`.
+- Nothing is read from the environment: the tenant, client and (optionally) thumbprint are always passed in code, typically from your own configuration.
 - Creating and exporting certificates is outside the package's scope; the commands above use standard Windows and Azure CLI tooling.
 
 Step-by-step guides, including Scheduled Task deployment, rotation scripts and troubleshooting, are in the [repository documentation](https://github.com/gijswalraven/KeyVaultReferenceResolver/tree/main/docs).

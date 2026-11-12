@@ -112,14 +112,11 @@ namespace KeyVaultReferenceResolver
             logger = logger ?? NullLogger.Instance;
 
             // Built only if the configuration holds a reference, so an application without any does not
-            // load a certificate (or fail on an expired one). applyEnvironmentConvention: with neither an
-            // explicit credential nor ClientCertificate, a store certificate whose subject or friendly
-            // name contains AZURE_CLIENT_ID is used for that service principal (with AZURE_TENANT_ID).
-            // See the CertificateStoreCredential package. The resolver is this method's own, and
+            // load a certificate (or fail on an expired one). The resolver is this method's own, and
             // resolution finishes before it returns, so it is disposed there.
             return AddResolver(
                 builder,
-                () => new KeyVaultSecretResolver(options, logger, applyEnvironmentConvention: true),
+                () => new KeyVaultSecretResolver(options, logger),
                 disposeResolver: true,
                 options,
                 logger);

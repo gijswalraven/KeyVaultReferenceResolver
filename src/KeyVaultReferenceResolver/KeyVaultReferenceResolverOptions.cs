@@ -49,16 +49,6 @@ namespace KeyVaultReferenceResolver
         /// of <see cref="ClientOptions"/> still apply.
         /// </para>
         /// <para>
-        /// When this is left <c>null</c> and no <see cref="Credential"/> is set, the same certificate
-        /// can be found without code: with <c>AZURE_TENANT_ID</c> and <c>AZURE_CLIENT_ID</c> set, a
-        /// certificate in <c>CurrentUser\My</c> (then <c>LocalMachine\My</c>) whose subject or friendly
-        /// name contains the client ID is used; if that certificate is unusable (expired, not yet valid, no
-        /// accessible private key) a warning is logged (event 1008) and the default chain is used instead.
-        /// <see cref="ExcludeEnvironmentCredential"/> switches this off, and so
-        /// does an explicit <see cref="ManagedIdentityClientId"/> (a deliberate choice of managed identity) or a
-        /// <see cref="TenantId"/> that differs from <c>AZURE_TENANT_ID</c>.
-        /// </para>
-        /// <para>
         /// The certificate is checked when the resolver is created: an <see cref="InvalidOperationException"/>
         /// is thrown if it is not in the store, has no accessible private key, or has expired.
         /// The private key may be non-exportable. <c>EnvironmentCredential</c> cannot do this: it

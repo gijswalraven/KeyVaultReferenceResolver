@@ -103,14 +103,11 @@ Register the resolver after the sources that carry references (`appsettings.json
 
 ## Step 4: Check AZURE_* variables on your machine
 
-The default credential chain and one convention read `AZURE_*` environment variables, and they can override the developer sign-in without you noticing.
+The default credential chain reads `AZURE_*` environment variables, and they can override the developer sign-in without you noticing.
 
 | Variable present | Effect |
 | --- | --- |
 | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET` | The environment credential sits ahead of the developer credentials and is used instead of your sign-in (unless `ExcludeEnvironmentCredential = true`). A leftover value from another project is a common cause of unexpected 403s. |
-| `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`, and a certificate in your `CurrentUser\My` or `LocalMachine\My` whose subject or friendly name contains the client ID | The store-certificate convention takes over instead of your sign-in, and an information record (event 1007) is logged. |
-| Either set, with no matching certificate and no client secret | Nothing changes for the convention; `AZURE_CLIENT_ID` can still name a user-assigned identity for managed identity (not relevant on a laptop). |
-| `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_USERNAME` or `AZURE_PASSWORD` | The convention stays out of the way. |
 
 To see what is set:
 
@@ -118,7 +115,7 @@ To see what is set:
 Get-ChildItem Env:AZURE_* | Select-Object Name   # names only; do not print values into logs or tickets
 ```
 
-If you want developer sign-in to win regardless of the environment, set `ExcludeEnvironmentCredential = true` in development as well. That also switches the certificate convention off.
+If you want developer sign-in to win regardless of the environment, set `ExcludeEnvironmentCredential = true` in development as well.
 
 ## Step 5: Verify
 

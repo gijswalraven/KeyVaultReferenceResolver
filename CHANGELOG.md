@@ -10,6 +10,27 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+## [2.2.0]
+
+`KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` 2.2.0 (HashiCorp itself has no changes; it
+moves in lockstep), with `CertificateStoreCredential` 1.1.0.
+
+### Removed
+
+- **The `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` store-certificate convention.** Nothing in either package reads
+  those variables to pick a certificate any more, so an identity is never chosen by whatever happens to be in the
+  process environment. This removes `CertificateStoreCredential.TryCreateFromEnvironment` (all three overloads)
+  and the resolver's log events 1007 (`ClientCertificateFromEnvironment`) and 1008
+  (`ClientCertificateFromEnvironmentUnusable`); those IDs are retired and not reused.
+- **Migration:** where the convention was used, set `KeyVaultReferenceResolverOptions.ClientCertificate` instead
+  (or call `CertificateStoreCredential.Create` for other tokens). `new CertificateStoreCredentialOptions(tenantId,
+  clientId)` finds the certificate by client ID exactly as the convention did, valid-then-latest-expiry, so renewal
+  still needs no change; take the two IDs from your own configuration. Without it the default credential chain is
+  used, as before for hosts with no matching certificate. An unusable certificate now always throws at startup,
+  since it is named explicitly, instead of logging a warning and falling back.
+- `Azure.Identity`'s own `AZURE_*` handling is unchanged: `ExcludeEnvironmentCredential` still controls its
+  `EnvironmentCredential`, and `AZURE_AUTHORITY_HOST` and `AZURE_ADDITIONALLY_ALLOWED_TENANTS` still apply.
+
 ## [2.1.0]
 
 `KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` 2.1.0, with the new

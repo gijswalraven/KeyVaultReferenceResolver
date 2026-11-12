@@ -154,13 +154,10 @@ Pass an `ILogger` and start the application. With Information logging you should
 
 - `ResolutionSummary` (1004): `Resolved N of N configuration value(s) containing Key Vault reference(s)`.
 - `SecretRead` (1002) per secret, naming the vault but not the secret.
-- **No** event 1007. That event means a store certificate was selected instead of the managed identity.
 
-## Interaction with the store-certificate convention
+## Store certificates
 
-The library can pick a certificate from the Windows store on its own: when `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set **and a certificate in `CurrentUser\My` or `LocalMachine\My` has the client ID in its subject or friendly name**. `AZURE_CLIENT_ID` is also set legitimately for user-assigned identities (it can name the identity to use, and AKS workload identity injects it), so merely being set changes nothing. The convention applies only when such a certificate exists, so on a managed-identity host without one it does nothing.
-
-It also stays out of the way when `AZURE_FEDERATED_TOKEN_FILE`, `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH`, `AZURE_USERNAME` or `AZURE_PASSWORD` is set, and `ExcludeEnvironmentCredential = true` or an explicit `ManagedIdentityClientId` switches it off. Setting that option on managed-identity hosts, as above, therefore also rules out the convention.
+A certificate in the Windows store is used only when `options.ClientCertificate` is set. `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` (also set legitimately for user-assigned identities and AKS workload identity) never select one.
 
 ## Troubleshooting
 

@@ -6,9 +6,9 @@ A service principal that authenticates with a certificate from the Windows certi
 
 Two points shape everything below.
 
-**The library gives no warning before expiry.** It emits no expiry log record and no metric for the client certificate. Event 1007 (`ClientCertificateFromEnvironment`) only says that the environment convention selected a certificate; it carries no dates. What the library does is check the certificate when the resolver is created: an expired certificate stops the application at setup with a specific message (see below). So expiry monitoring has to come from a check you run yourself. This guide provides one as a script, and you wire it into your own monitoring.
+**The library gives no warning before expiry.** It emits no expiry log record and no metric for the client certificate. What the library does is check the certificate when the resolver is created: an expired certificate stops the application at setup with a specific message (see below). So expiry monitoring has to come from a check you run yourself. This guide provides one as a script, and you wire it into your own monitoring.
 
-**Rotation is overlap, not replacement.** An Entra app registration can hold several certificates at once, and the library picks the certificate that is currently valid and expires last (both by convention and when the explicit form names only the client ID). So the safe order is: add the new certificate, switch over, and only then remove the old one. A thumbprint-pinned configuration is the exception and has to be updated by hand.
+**Rotation is overlap, not replacement.** An Entra app registration can hold several certificates at once, and the library picks the certificate that is currently valid and expires last (when the options name only the client ID). So the safe order is: add the new certificate, switch over, and only then remove the old one. A thumbprint-pinned configuration is the exception and has to be updated by hand.
 
 What the library does with a certificate that has expired, at the moment the resolver is created:
 
@@ -140,9 +140,8 @@ Restart the task (or the application) on the VM. The expiry script from Step 6 r
 
 | How the application names the certificate | What to do |
 | --- | --- |
-| Environment convention (`AZURE_TENANT_ID` + `AZURE_CLIENT_ID`) | Nothing. The valid certificate expiring last is picked. |
-| Explicit `new CertificateStoreCredentialOptions(tenantId, clientId)` | Nothing, same rule. |
-| Explicit with a thumbprint | Change the thumbprint in the application's configuration, then restart. |
+| `new CertificateStoreCredentialOptions(tenantId, clientId)` | Nothing. The valid certificate expiring last is picked. |
+| With a thumbprint | Change the thumbprint in the application's configuration, then restart. |
 
 A long-running process keeps the certificate it loaded at start. Only a restart switches it.
 
@@ -293,5 +292,5 @@ The scheduler records the exit code as `LastTaskResult` (`Get-ScheduledTaskInfo 
 - [Client-Certificate-Authentication-HOWTO.md](../Deployment/Client-Certificate-Authentication-HOWTO.md): initial setup
 - [Scheduled-Task-Deployment-HOWTO.md](../Deployment/Scheduled-Task-Deployment-HOWTO.md): running the consumer as a task
 - [Diagnose-Authentication-Failures-HOWTO.md](Diagnose-Authentication-Failures-HOWTO.md): when authentication fails anyway
-- [Logging-And-Monitoring.md](Logging-And-Monitoring.md): event IDs, including 1007
+- [Logging-And-Monitoring.md](Logging-And-Monitoring.md): event IDs
 - [Vault-Authentication-Methods.md](../Features/Vault-Authentication-Methods.md): how the credential is chosen

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
@@ -8,7 +7,6 @@ using Azure.Core;
 using Azure.Identity;
 using CertificateStoreCredentials;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace KeyVaultReferenceResolver.Tests;
@@ -23,13 +21,13 @@ public class AzureEnvironmentCollection
 }
 
 /// <summary>
-/// How the resolver uses the CertificateStoreCredential package: which credential wins, what
-/// switches the environment convention off, and that the convention is logged. The certificate
-/// lookup and validation rules themselves are tested in CertificateStoreCredential.Tests.
+/// How the resolver uses the CertificateStoreCredential package: which credential wins, and that
+/// the environment is never consulted for a certificate. The certificate lookup and validation
+/// rules themselves are tested in CertificateStoreCredential.Tests.
 /// </summary>
 /// <remarks>
-/// The convention needs a certificate in a store, so those tests go through the real
-/// <c>CurrentUser\My</c> store on Windows and remove everything they add in a <c>finally</c>.
+/// Tests that need a certificate in a store go through the real <c>CurrentUser\My</c> store on
+/// Windows and remove everything they add in a <c>finally</c>.
 /// </remarks>
 [Collection("AzureEnvironment")]
 public class CertificateIntegrationTests
@@ -115,17 +113,6 @@ public class CertificateIntegrationTests
     }
 
     [Fact]
-    public void ExplicitCredential_BypassesTheConvention_ThroughTheExtension()
-    {
-        WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", Guid.NewGuid().ToString()) }, () =>
-        {
-            // No certificate matches this client, so this only proves nothing throws and nothing is
-            // looked up in a way that could; the Windows tests below prove the convention itself.
-            new ConfigurationBuilder().AddKeyVaultReferenceResolver(new ClientSecretCredential(Tenant, "client", "not-used"));
-        });
-    }
-
-    [Fact]
     public void ClientCertificate_NotInStore_FailsWhenTheResolverIsCreated()
     {
         var settings = new CertificateStoreCredentialOptions(Tenant, "client", Guid.NewGuid().ToString("N") + "ABCDEF01");
@@ -148,17 +135,6 @@ public class CertificateIntegrationTests
         new ConfigurationBuilder().AddKeyVaultReferenceResolver(options, logger: null);
     }
 
-    [Fact]
-    public void Convention_StaysOutOfTheWay_ForADeliberateManagedIdentity()
-    {
-        WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", "client") }, () =>
-        {
-            Assert.True(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions()));
-            Assert.False(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { ManagedIdentityClientId = "mi-client" }));
-            Assert.False(KeyVaultSecretResolver.ConventionApplies(new KeyVaultReferenceResolverOptions { ExcludeEnvironmentCredential = true }));
-        });
-    }
-
     private static ConfigurationBuilder WithReference(ConfigurationBuilder builder)
     {
         builder.AddInMemoryCollection(new Dictionary<string, string?>
@@ -168,68 +144,13 @@ public class CertificateIntegrationTests
         return builder;
     }
 
+    /// <summary>
+    /// AZURE_TENANT_ID and AZURE_CLIENT_ID no longer select a store certificate: with a matching
+    /// certificate in the store, the resolver, built directly or by the extension, still uses the
+    /// default chain.
+    /// </summary>
     [Fact]
-    public void ExcludeEnvironmentCredential_SwitchesTheConventionOff()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            Assert.Skip("Persisting a private key in the user store is exercised on Windows only.");
-            return;
-        }
-
-        var clientId = Guid.NewGuid().ToString();
-        WithStoreCertificate(clientId, expired: true, _ =>
-            WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", clientId) }, () =>
-            {
-                // An expired certificate names the client, so the convention would throw if consulted.
-                using var resolver = new KeyVaultSecretResolver(
-                    new KeyVaultReferenceResolverOptions { ExcludeEnvironmentCredential = true }, logger: null, applyEnvironmentConvention: true);
-
-                Assert.IsNotType<CertificateStoreCredential>(resolver.Credential);
-            }));
-    }
-
-    [Fact]
-    public void WithoutAMatchingCertificate_NothingChanges()
-    {
-        // e.g. a user-assigned managed identity: AZURE_CLIENT_ID is set for another reason.
-        WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", Guid.NewGuid().ToString()) }, () =>
-        {
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?> { ["Plain"] = "value" })
-                .AddKeyVaultReferenceResolver()
-                .Build();
-
-            Assert.Equal("value", configuration["Plain"]);
-
-            using var resolver = new KeyVaultSecretResolver(null, null, applyEnvironmentConvention: true);
-            Assert.IsType<DefaultAzureCredential>(resolver.Credential);
-        });
-    }
-
-    [Fact]
-    public void WithoutAnyVariables_BehaviourIsUnchanged()
-    {
-        WithEnvironment(Array.Empty<(string, string)>(), () =>
-        {
-            var options = new KeyVaultReferenceResolverOptions();
-            Assert.Null(options.ClientCertificate);
-
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new[] { new KeyValuePair<string, string?>("Plain", "value") })
-                .AddKeyVaultReferenceResolver(options, logger: null)
-                .Build();
-
-            Assert.Equal("value", configuration["Plain"]);
-
-            var chain = KeyVaultSecretResolver.BuildCredentialOptions(new KeyVaultReferenceResolverOptions { AllowDeveloperCredentials = true });
-            Assert.False(chain.ExcludeAzureCliCredential);
-        });
-    }
-
-    /// <summary>A resolver built directly never reads the environment for an identity.</summary>
-    [Fact]
-    public void DirectConstruction_NeverAppliesTheConvention()
+    public void EnvironmentVariables_NeverSelectAStoreCertificate()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -242,52 +163,15 @@ public class CertificateIntegrationTests
             WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", clientId) }, () =>
             {
                 using var resolver = new KeyVaultSecretResolver(new KeyVaultReferenceResolverOptions());
-
                 Assert.IsType<DefaultAzureCredential>(resolver.Credential);
-            }));
-    }
 
-    // ---- the convention through the resolver ----
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Convention_IsAppliedByTheExtension_AndFallsBackWhenUnusable(bool expired)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            Assert.Skip("Persisting a private key in the user store is exercised on Windows only.");
-            return;
-        }
-
-        var clientId = Guid.NewGuid().ToString();
-        WithStoreCertificate(clientId, expired, thumbprint =>
-            WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", clientId) }, () =>
-            {
-                if (expired)
-                {
-                    // A stale certificate that merely names AZURE_CLIENT_ID (also set for a user-assigned
-                    // managed identity) must not stop the application: warn and use the default chain.
-                    var logger = new RecordingLogger();
-                    using var resolver = new KeyVaultSecretResolver(null, logger, applyEnvironmentConvention: true);
-                    Assert.IsNotType<CertificateStoreCredential>(resolver.Credential);
-                    var warning = Assert.Single(logger.Entries, e => e.EventId.Id == LogEvents.ClientCertificateFromEnvironmentUnusableId);
-                    Assert.Equal(LogLevel.Warning, warning.Level);
-                    Assert.Contains("expired", warning.Text);
-                }
-                else
-                {
-                    new ConfigurationBuilder().AddKeyVaultReferenceResolver();
-
-                    using var resolver = new KeyVaultSecretResolver(null, null, applyEnvironmentConvention: true);
-                    var credential = Assert.IsType<CertificateStoreCredential>(resolver.Credential);
-                    Assert.Equal(thumbprint, credential.Thumbprint);
-                }
+                // The extension resolves nothing here, but must not load the certificate either.
+                new ConfigurationBuilder().AddKeyVaultReferenceResolver();
             }));
     }
 
     [Fact]
-    public void ClientCertificate_TakesPrecedenceOverTheConvention_AndBothUseThePackageCredential()
+    public void ClientCertificate_UsesThePackageCredential_AndPicksTheSameCertificateAsAStandaloneOne()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -297,58 +181,16 @@ public class CertificateIntegrationTests
 
         var clientId = Guid.NewGuid().ToString();
         WithStoreCertificate(clientId, expired: false, thumbprint =>
-            WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", clientId) }, () =>
-            {
-                var settings = new CertificateStoreCredentialOptions(Tenant, clientId);
-
-                using var explicitResolver = new KeyVaultSecretResolver(
-                    new KeyVaultReferenceResolverOptions { ClientCertificate = settings }, null, applyEnvironmentConvention: true);
-                using var conventionResolver = new KeyVaultSecretResolver(null, null, applyEnvironmentConvention: true);
-                using var standalone = CertificateStoreCredential.Create(settings);
-
-                // The resolver and a standalone consumer of the package pick the same certificate.
-                var fromExplicit = Assert.IsType<CertificateStoreCredential>(explicitResolver.Credential);
-                var fromConvention = Assert.IsType<CertificateStoreCredential>(conventionResolver.Credential);
-                Assert.Equal(thumbprint, fromExplicit.Thumbprint);
-                Assert.Equal(thumbprint, fromConvention.Thumbprint);
-                Assert.Equal(thumbprint, standalone.Thumbprint);
-            }));
-    }
-
-    // ---- logging ----
-
-    [Fact]
-    public void Convention_IsLoggedAsEvent1007_WithoutAnIdentifier()
-    {
-        if (!OperatingSystem.IsWindows())
         {
-            Assert.Skip("Persisting a private key in the user store is exercised on Windows only.");
-            return;
-        }
+            var settings = new CertificateStoreCredentialOptions(Tenant, clientId);
 
-        var clientId = Guid.NewGuid().ToString();
-        var logger = new RecordingLogger();
-        WithStoreCertificate(clientId, expired: false, thumbprint =>
-            WithEnvironment(new[] { ("AZURE_TENANT_ID", Tenant), ("AZURE_CLIENT_ID", clientId) }, () =>
-            {
-                using var resolver = new KeyVaultSecretResolver(null, logger, applyEnvironmentConvention: true);
+            using var resolver = new KeyVaultSecretResolver(
+                new KeyVaultReferenceResolverOptions { ClientCertificate = settings });
+            using var standalone = CertificateStoreCredential.Create(settings);
 
-                var entry = Assert.Single(logger.Entries, e => e.EventId.Id == LogEvents.ClientCertificateFromEnvironmentId);
-                Assert.Equal(LogLevel.Information, entry.Level);
-                Assert.DoesNotContain(clientId, entry.Text);
-                Assert.DoesNotContain(thumbprint, entry.Text);
-            }));
-    }
-
-    [Fact]
-    public void WithoutAConvention_Event1007IsNotLogged()
-    {
-        var logger = new RecordingLogger();
-        WithEnvironment(Array.Empty<(string, string)>(), () =>
-        {
-            using var resolver = new KeyVaultSecretResolver(null, logger, applyEnvironmentConvention: true);
-
-            Assert.DoesNotContain(logger.Entries, e => e.EventId.Id == LogEvents.ClientCertificateFromEnvironmentId);
+            var fromResolver = Assert.IsType<CertificateStoreCredential>(resolver.Credential);
+            Assert.Equal(thumbprint, fromResolver.Thumbprint);
+            Assert.Equal(thumbprint, standalone.Thumbprint);
         });
     }
 
@@ -385,37 +227,5 @@ public class CertificateIntegrationTests
 
         Assert.Empty(credentialOptions.AdditionallyAllowedTenants);
         Assert.Equal(new ClientCertificateCredentialOptions().Retry.MaxRetries, credentialOptions.Retry.MaxRetries);
-    }
-
-    private sealed class RecordingLogger : ILogger
-    {
-        private readonly ConcurrentQueue<Entry> _entries = new();
-
-        public IEnumerable<Entry> Entries => _entries;
-
-        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
-        {
-            _entries.Enqueue(new Entry(logLevel, eventId, formatter(state, exception)));
-        }
-
-        internal sealed record Entry(LogLevel Level, EventId EventId, string Text);
-
-        private sealed class NullScope : IDisposable
-        {
-            public static readonly NullScope Instance = new();
-
-            public void Dispose()
-            {
-            }
-        }
     }
 }

@@ -31,8 +31,8 @@ graph LR
 
 - **Set:** `options.ExcludeEnvironmentCredential = true;` on every managed-identity and workload-identity host.
 - **Default:** `false` (backwards compatibility).
-- **Why:** the environment credential (`AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET`) sits ahead of managed identity in the chain, so anything able to set those variables redirects all vault access to an identity of its choosing. On App Service every application setting is an environment variable. This option also switches off the store-certificate convention, which reads the same environment.
-- **Not for:** a Windows VM that authenticates with a store certificate through the convention. There, use the explicit `ClientCertificate` option (see [Client-Certificate-Authentication-HOWTO.md](../Deployment/Client-Certificate-Authentication-HOWTO.md)).
+- **Why:** the environment credential (`AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET`) sits ahead of managed identity in the chain, so anything able to set those variables redirects all vault access to an identity of its choosing. On App Service every application setting is an environment variable.
+- **Not for:** a Windows VM that authenticates with a store certificate. There, use the `ClientCertificate` option (an unusable certificate always throws at startup) (see [Client-Certificate-Authentication-HOWTO.md](../Deployment/Client-Certificate-Authentication-HOWTO.md)).
 
 ### 3. Keep developer credentials off
 
@@ -113,8 +113,6 @@ On a healthy start, with Information logging for the library:
 | --- | --- | --- | --- |
 | 1004 | `ResolutionSummary` | Information | `Resolved N of N`, with N equal on both sides |
 | 1002 | `SecretRead` | Information | one per secret, naming the vault but not the secret |
-| 1007 | `ClientCertificateFromEnvironment` | Information | only on a host that uses the store-certificate convention; absent otherwise |
-| 1008 | `ClientCertificateFromEnvironmentUnusable` | Warning | a store certificate names `AZURE_CLIENT_ID` but is expired or unusable and the default chain took over; alert on it |
 
 Alert on these:
 

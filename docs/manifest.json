@@ -214,7 +214,7 @@
         "README.md"
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
-      "prompt": "Keep the HOWTO in step with the code: app registration, creating the certificate, the AZURE_TENANT_ID/AZURE_CLIENT_ID convention and its rules, the explicit ClientCertificate form, rotation and troubleshooting messages."
+      "prompt": "Keep the HOWTO in step with the code: app registration, creating the certificate, the ClientCertificate form (client ID or thumbprint; nothing read from the environment), rotation and troubleshooting messages."
     },
     {
       "name": "Certificate-Rotation-And-Expiry-Monitoring-HOWTO",
@@ -237,7 +237,7 @@
         "src/CertificateStoreCredential/CertificateStoreLoader.cs"
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
-      "prompt": "Run-as account and store choice, where AZURE_TENANT_ID/AZURE_CLIENT_ID go, startup failure and exit codes, timeouts, register-resolver-last."
+      "prompt": "Run-as account and store choice, where the tenant and client ID are configured, startup failure and exit codes, timeouts, register-resolver-last."
     },
     {
       "name": "Diagnose-Authentication-Failures-HOWTO",
@@ -260,7 +260,7 @@
         "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs"
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
-      "prompt": "ManagedIdentityClientId, RBAC role, ExcludeEnvironmentCredential and the interaction with the store-certificate convention."
+      "prompt": "ManagedIdentityClientId, RBAC role, ExcludeEnvironmentCredential and that store certificates are used only via ClientCertificate."
     },
     {
       "name": "Local-Development-Without-Secrets-HOWTO",

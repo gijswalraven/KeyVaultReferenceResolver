@@ -21,8 +21,7 @@ namespace CertificateStoreCredentials
     /// that a thumbprint copied out of the Certificates MMC snap-in works as pasted.
     /// </para>
     /// <para>
-    /// Unlike the environment convention, which silently does nothing when no certificate matches,
-    /// naming the certificate here means it is required: a missing, key-less or expired certificate
+    /// Naming the certificate here means it is required: a missing, key-less or expired certificate
     /// throws <see cref="InvalidOperationException"/> when the credential is created.
     /// </para>
     /// </remarks>
