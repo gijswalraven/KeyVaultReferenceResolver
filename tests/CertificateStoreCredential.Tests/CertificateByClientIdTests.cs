@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Xunit;
 
-namespace KeyVaultReferenceResolver.Tests;
+namespace CertificateStoreCredentials.Tests;
 
 /// <summary>
 /// The explicit route without a thumbprint: <c>new CertificateStoreCredentialOptions(tenant, client)</c>
@@ -114,15 +114,12 @@ public class CertificateByClientIdTests
     }
 
     [Fact]
-    public void ResolverCreation_WithoutAMatchingCertificate_FailsAtSetup()
+    public void Create_WithoutAMatchingCertificate_FailsAtSetup()
     {
         var clientId = Guid.NewGuid().ToString();
-        var options = new KeyVaultReferenceResolverOptions
-        {
-            ClientCertificate = new CertificateStoreCredentialOptions(Tenant, clientId)
-        };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => new KeyVaultSecretResolver(options));
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => CertificateStoreCredential.Create(new CertificateStoreCredentialOptions(Tenant, clientId)));
 
         Assert.Contains(clientId, ex.Message);
     }
@@ -135,7 +132,7 @@ public class CertificateByClientIdTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void ResolverCreation_FindsTheCertificateInTheCurrentUserStore(bool expired)
+    public void Create_FindsTheCertificateInTheCurrentUserStore(bool expired)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -157,19 +154,17 @@ public class CertificateByClientIdTests
         {
             store.Add(persisted);
 
-            var options = new KeyVaultReferenceResolverOptions
-            {
-                ClientCertificate = new CertificateStoreCredentialOptions(Tenant, clientId)
-            };
+            var settings = new CertificateStoreCredentialOptions(Tenant, clientId);
 
             if (expired)
             {
-                var ex = Assert.Throws<InvalidOperationException>(() => new KeyVaultSecretResolver(options));
+                var ex = Assert.Throws<InvalidOperationException>(() => CertificateStoreCredential.Create(settings));
                 Assert.Contains("expired", ex.Message);
             }
             else
             {
-                using var resolver = new KeyVaultSecretResolver(options);
+                using var credential = CertificateStoreCredential.Create(settings);
+                Assert.Equal(persisted.Thumbprint, credential.Thumbprint);
             }
         }
         finally

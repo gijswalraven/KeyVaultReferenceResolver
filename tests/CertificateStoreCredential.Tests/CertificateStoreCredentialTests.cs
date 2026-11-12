@@ -1,11 +1,11 @@
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Azure.Identity;
-using Microsoft.Extensions.Configuration;
 using Xunit;
 
-namespace KeyVaultReferenceResolver.Tests;
+namespace CertificateStoreCredentials.Tests;
 
 /// <summary>
 /// Client-certificate authentication from the certificate store. Certificates are created in
@@ -76,7 +76,7 @@ public class CertificateStoreCredentialTests
 
         using var selected = CertificateStoreLoader.Select(
             new X509Certificate2Collection(certificate), settings, DateTimeOffset.UtcNow);
-        var credential = CertificateStoreLoader.CreateCredential(settings, selected, new KeyVaultReferenceResolverOptions());
+        var credential = CertificateStoreLoader.CreateCredential(settings, selected, null);
 
         Assert.IsType<ClientCertificateCredential>(credential);
     }
@@ -168,64 +168,26 @@ public class CertificateStoreCredentialTests
         Assert.DoesNotContain(privateKey.Substring(0, 40), ex.Message);
     }
 
-    // ---- wiring into the resolver ----
+    // ---- creating the credential through the real store ----
 
     [Fact]
-    public void ClientCertificate_NotInStore_FailsWhenTheResolverIsCreated()
+    public void Create_NotInStore_FailsWhenTheCredentialIsCreated()
     {
-        // Random thumbprint: cannot be in any store. Fails at construction, before any vault call.
-        var options = new KeyVaultReferenceResolverOptions
-        {
-            ClientCertificate = new CertificateStoreCredentialOptions(Tenant, Client, Guid.NewGuid().ToString("N") + "ABCDEF01")
-        };
+        // Random thumbprint: cannot be in any store. Fails at creation, before any token request.
+        var settings = new CertificateStoreCredentialOptions(Tenant, Client, Guid.NewGuid().ToString("N") + "ABCDEF01");
 
-        var ex = Assert.Throws<InvalidOperationException>(() => new KeyVaultSecretResolver(options));
-        Assert.Contains(options.ClientCertificate.Thumbprint!, ex.Message);
+        var ex = Assert.Throws<InvalidOperationException>(() => CertificateStoreCredential.Create(settings));
 
-        var builder = new ConfigurationBuilder();
-        Assert.Throws<InvalidOperationException>(() => builder.AddKeyVaultReferenceResolver(options, logger: null));
-    }
-
-    [Fact]
-    public void ExplicitCredential_WinsOverClientCertificate()
-    {
-        var credential = new ClientSecretCredential(Tenant, Client, "not-used");
-        var options = new KeyVaultReferenceResolverOptions
-        {
-            Credential = credential,
-            // Would throw if it were consulted.
-            ClientCertificate = new CertificateStoreCredentialOptions(Tenant, Client, Guid.NewGuid().ToString("N") + "ABCDEF01")
-        };
-
-        using var resolver = new KeyVaultSecretResolver(options);
-    }
-
-    [Fact]
-    public void WithoutClientCertificate_BehaviourIsUnchanged()
-    {
-        var options = new KeyVaultReferenceResolverOptions();
-        Assert.Null(options.ClientCertificate);
-
-        // Same default-chain construction as before, and no Azure call without a reference.
-        using var resolver = new KeyVaultSecretResolver(options);
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new[] { new KeyValuePair<string, string?>("Plain", "value") })
-            .AddKeyVaultReferenceResolver(options, logger: null)
-            .Build();
-
-        Assert.Equal("value", configuration["Plain"]);
-
-        var chain = KeyVaultSecretResolver.BuildCredentialOptions(new KeyVaultReferenceResolverOptions { AllowDeveloperCredentials = true });
-        Assert.False(chain.ExcludeAzureCliCredential);
+        Assert.Contains(settings.Thumbprint!, ex.Message);
     }
 
     /// <summary>
-    /// The one test that goes through the real store. The certificate carries a persisted,
-    /// non-exportable-style key, is added to CurrentUser\My, found by a messy thumbprint, and then
-    /// removed along with its key container.
+    /// The one test that goes through the real store with a thumbprint. The certificate carries a
+    /// persisted, non-exportable-style key, is added to CurrentUser\My, found by a messy thumbprint, and
+    /// then removed along with its key container.
     /// </summary>
     [Fact]
-    public void ClientCertificate_InCurrentUserStore_IsFoundAndUsed()
+    public void Create_InCurrentUserStore_FindsTheCertificateByAMessyThumbprint()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -244,13 +206,11 @@ public class CertificateStoreCredentialTests
         {
             store.Add(persisted);
 
-            var messy = "‎" + string.Join(" ", persisted.Thumbprint.ToLowerInvariant().Chunk(4).Select(c => new string(c)));
-            var options = new KeyVaultReferenceResolverOptions
-            {
-                ClientCertificate = new CertificateStoreCredentialOptions(Tenant, Client, messy)
-            };
+            var messy = "\u200e" + string.Join(" ", persisted.Thumbprint.ToLowerInvariant().Chunk(4).Select(c => new string(c)));
 
-            using var resolver = new KeyVaultSecretResolver(options);
+            using var credential = CertificateStoreCredential.Create(new CertificateStoreCredentialOptions(Tenant, Client, messy));
+
+            Assert.Equal(persisted.Thumbprint, credential.Thumbprint);
         }
         finally
         {

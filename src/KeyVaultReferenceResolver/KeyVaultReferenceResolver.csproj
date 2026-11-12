@@ -38,6 +38,23 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CertificateStoreCredential\CertificateStoreCredential.csproj" />
+  </ItemGroup>
+
+  <!--
+    The project reference is for development; the published package depends on the
+    CertificateStoreCredential package. Pack turns a project reference into "version >= its
+    version", with no upper bound, so a future 2.x of that package with breaking changes would be
+    accepted. This narrows the dependency to the 1.x line. Raise the range deliberately, together
+    with the reference, when a new major version of CertificateStoreCredential is adopted.
+  -->
+  <Target Name="NarrowCertificateStoreCredentialRange" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'CertificateStoreCredential'" ProjectVersion="[1.0.0, 2.0.0)" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
     <!-- Internal members are exposed to the test project so that the credential and
          client-options builders can be asserted on directly. Without this the only way
          to test them is through a live vault call. -->

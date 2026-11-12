@@ -12,7 +12,7 @@
         "src/KeyVaultReferenceResolver/ISecretResolver.cs",
         "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs",
         "src/KeyVaultReferenceResolver.HashiCorp/HashiCorpVaultReferenceExtensions.cs",
-        "KeyVaultReferenceResolver.sln",
+        "KeyVaultReferenceResolver.slnx",
         "global.json"
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
@@ -206,8 +206,10 @@
       "folder": "Deployment",
       "description": "Step-by-step: authenticate as a service principal with a non-exportable certificate from the Windows certificate store",
       "filePatterns": [
-        "src/KeyVaultReferenceResolver/CertificateStoreCredentialOptions.cs",
-        "src/KeyVaultReferenceResolver/CertificateStoreLoader.cs",
+        "src/CertificateStoreCredential/CertificateStoreCredential.cs",
+        "src/CertificateStoreCredential/README.md",
+        "src/CertificateStoreCredential/CertificateStoreCredentialOptions.cs",
+        "src/CertificateStoreCredential/CertificateStoreLoader.cs",
         "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
         "README.md"
       ],
@@ -219,7 +221,7 @@
       "folder": "Operations",
       "description": "Rotate the store certificate across VMs and monitor its expiry with scripts",
       "filePatterns": [
-        "src/KeyVaultReferenceResolver/CertificateStoreLoader.cs",
+        "src/CertificateStoreCredential/CertificateStoreLoader.cs",
         "docs/Deployment/Client-Certificate-Authentication-HOWTO.md"
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
@@ -232,7 +234,7 @@
       "filePatterns": [
         "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverOptions.cs",
         "src/KeyVaultReferenceResolver/KeyVaultReferenceResolverExtensions.cs",
-        "src/KeyVaultReferenceResolver/CertificateStoreLoader.cs"
+        "src/CertificateStoreCredential/CertificateStoreLoader.cs"
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
       "prompt": "Run-as account and store choice, where AZURE_TENANT_ID/AZURE_CLIENT_ID go, startup failure and exit codes, timeouts, register-resolver-last."
@@ -243,7 +245,7 @@
       "description": "Decision flow from an authentication symptom to its cause",
       "filePatterns": [
         "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
-        "src/KeyVaultReferenceResolver/CertificateStoreLoader.cs",
+        "src/CertificateStoreCredential/CertificateStoreLoader.cs",
         "src/KeyVaultReferenceResolver/LogEvents.cs"
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],

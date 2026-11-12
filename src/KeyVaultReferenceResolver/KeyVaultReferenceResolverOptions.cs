@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Azure.Core;
 using Azure.Security.KeyVault.Secrets;
+using CertificateStoreCredentials;
 
 namespace KeyVaultReferenceResolver
 {

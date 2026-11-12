@@ -2,7 +2,7 @@
 
 ## Overview and Purpose
 
-Two NuGet packages are published from this repository, and a compromise of that pipeline would be a supply-chain compromise of every application that consumes them. The pipeline is therefore built around one assumption: **the publishing path is a higher-value target than the code**. An attacker who can push a package under an existing ID does not need to find a bug in the resolution logic.
+Three NuGet packages are published from this repository (`CertificateStoreCredential`, `KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp`), and a compromise of that pipeline would be a supply-chain compromise of every application that consumes them. The pipeline is therefore built around one assumption: **the publishing path is a higher-value target than the code**. An attacker who can push a package under an existing ID does not need to find a bug in the resolution logic.
 
 That shapes five controls, each closing a specific path:
 
@@ -193,7 +193,7 @@ run: |
 
 Two things worth noting. The tag is passed via `env` rather than interpolated into the script, because tag names can legally contain shell metacharacters that would splice into the `run` block — a genuine injection vector in GitHub Actions. And the check runs before any build, because NuGet does not allow true deletion: a wrong version pushed is permanent, so the failure has to happen before anything is pushed.
 
-The check reads only the core package's csproj. That works because the two packages are versioned in lockstep — see *Version lockstep* below — but it means a HashiCorp csproj left at an older version would pass the gate and publish a mismatched pair.
+The tag names the `KeyVaultReferenceResolver` release, and the check reads only that csproj. That works because the core and HashiCorp packages are versioned in lockstep — see *Version lockstep* below — but it means a HashiCorp csproj left at an older version would pass the gate and publish a mismatched pair.
 
 **Build provenance:**
 
@@ -220,7 +220,7 @@ gh attestation verify KeyVaultReferenceResolver.1.3.0.nupkg \
   run: |
     version="${RELEASE_TAG#v}"
     dotnet tool restore
-    dotnet dotnet-CycloneDX KeyVaultReferenceResolver.sln \
+    dotnet dotnet-CycloneDX KeyVaultReferenceResolver.slnx \
       --output ./sbom \
       --filename KeyVaultReferenceResolver-sbom.cdx.json \
       --output-format Json \
@@ -245,7 +245,7 @@ CycloneDX 6.2.0, pinned in [.config/dotnet-tools.json](../../.config/dotnet-tool
     user: GijsWalraven
 
 - name: Publish to NuGet.org
-  run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_API_KEY" ...
+  run: dotnet nuget push ./artifacts/CertificateStoreCredential.<version>.nupkg ...   # then KeyVaultReferenceResolver, then .HashiCorp
   env:
     NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
 ```
@@ -282,11 +282,15 @@ The separately-listed paths are `/src/` (the resolution path), `/.github/workflo
 
 Like the protected environment, this has teeth only once branch protection requires code-owner review.
 
-## Version lockstep
+## Version lockstep and publish order
 
-The two packages are released together and their `<Version>` elements must move together. Nothing in the automation enforces this — the release workflow's tag check reads only the core csproj — so it is a manual discipline.
+`KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` are released together and their `<Version>` elements must move together. Nothing in the automation enforces this — the release workflow's tag check reads only the core csproj — so it is a manual discipline.
 
 The reason is the `ProjectReference`. `KeyVaultReferenceResolver.HashiCorp` references the core project, so a released HashiCorp package carries a `PackageReference` dependency on the core package at the version it was built against. Diverging versions produce combinations that were never built or tested together, and the HashiCorp package implements `ISecretResolver` from the core package — an interface change would break across a version gap.
+
+`CertificateStoreCredential` is the exception: it knows nothing about Key Vault and has a version of its own (it starts at 1.0.0), bumped only when that package changes. `KeyVaultReferenceResolver` references it as a project for development; at pack time a small MSBuild target in `KeyVaultReferenceResolver.csproj` narrows the published dependency to a range (`[1.0.0, 2.0.0)`), because a plain project reference would otherwise become an open-ended `>= 1.0.0`. Raise that range deliberately, together with the reference, when a new major version of `CertificateStoreCredential` is adopted.
+
+Every release workflow run packs all three packages and publishes them in a fixed order, each after the packages it depends on: `CertificateStoreCredential`, then `KeyVaultReferenceResolver`, then `KeyVaultReferenceResolver.HashiCorp`. A glob would push in file-name order and could publish a package before its dependency exists on nuget.org. `--skip-duplicate` lets a release that does not bump `CertificateStoreCredential` skip it. A step before the publish job fails the release if any of the three packages is missing from the artifact.
 
 Release procedure, from [CONTRIBUTING.md](../../CONTRIBUTING.md):
 
@@ -318,7 +322,7 @@ Both csproj files carry the same shape:
 
 SourceLink plus `.snupkg` symbols means a consumer can step into library sources from the debugger. `GenerateDocumentationFile` ships the XML docs, which for this library carry a significant part of the security rationale — the comments on `ExcludeEnvironmentCredential` and `RejectSecretsOutsideValidityPeriod` are the explanation a consumer sees in IntelliSense.
 
-The root `README.md` is packed into both packages via a `<None Include="..\..\README.md" Pack="true" />` item, so both listings show the same documentation.
+The root `README.md` is packed into both resolver packages via a `<None Include="..\..\README.md" Pack="true" />` item, so both listings show the same documentation; `CertificateStoreCredential` packs its own `README.md`, since it is documented as a package in its own right.
 
 `ContinuousIntegrationBuild` is set when `GITHUB_ACTIONS` is true, which normalises the source paths in the PDBs. Without it the symbols carry the runner's absolute paths and the build is not path-reproducible.
 
@@ -383,7 +387,7 @@ The root `README.md` is packed into both packages via a `<None Include="..\..\RE
 ### Operational
 
 - Release blocked at *"Verify tag matches package version"* — the tag and `<Version>` disagree. Fix the csproj and re-tag; do not force the push.
-- **Bump both csproj versions.** The gate only checks one, and the packages must ship in lockstep.
+- **Bump both resolver csproj versions.** The gate only checks one, and those two packages must ship in lockstep. `CertificateStoreCredential` is bumped separately, and only when it changed.
 - OIDC login failure — check the nuget.org Trusted Publishing policy still matches the owner, repository and workflow filename.
 - Release waiting with no progress — the `nuget-production` environment is waiting for approval.
 - A red vulnerability gate is a real finding: add an explicit forward `PackageReference` pin, as was done for `System.Text.Json`.

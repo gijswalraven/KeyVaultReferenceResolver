@@ -39,7 +39,7 @@ Second, the failure path is not an escape hatch. Whether or not `ThrowOnResolveF
 
 ### Before Stage 1 — Choose the credential
 
-When no credential or `ClientCertificate` is set and `ExcludeEnvironmentCredential` is `false`, the options-taking `AddKeyVaultReferenceResolver` overload asks `CertificateStoreLoader.FromEnvironment` whether `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set and a store certificate names the client ID. If so, that certificate is passed to the resolver (log event 1007); otherwise nothing changes. A pipeline with no references still builds the resolver, so an unusable certificate fails here, before any configuration is scanned.
+When no credential or `ClientCertificate` is set and `ExcludeEnvironmentCredential` is `false`, the options-taking `AddKeyVaultReferenceResolver` overload builds the resolver with the environment convention enabled. The resolver then asks `CertificateStoreCredential.TryCreateFromEnvironment` (from the CertificateStoreCredential package) whether `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set and a store certificate names the client ID. If so, that credential is used (log event 1007); otherwise nothing changes. A `KeyVaultSecretResolver` constructed directly never applies the convention. A pipeline with no references still builds the resolver, so an unusable certificate fails here, before any configuration is scanned.
 
 ### Stage 1 — Probe the configuration under construction
 

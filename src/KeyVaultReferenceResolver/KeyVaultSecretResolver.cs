@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
 using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
+using CertificateStoreCredentials;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -19,7 +19,7 @@ namespace KeyVaultReferenceResolver
     public class KeyVaultSecretResolver : ISecretResolver, IDisposable
     {
         private readonly TokenCredential _credential;
-        private readonly X509Certificate2? _clientCertificate;
+        private readonly CertificateStoreCredential? _certificateCredential;
         private readonly KeyVaultReferenceResolverOptions _options;
         private readonly ILogger _logger;
         private readonly ConcurrentDictionary<string, SecretClient> _secretClients = new ConcurrentDictionary<string, SecretClient>();
@@ -38,47 +38,57 @@ namespace KeyVaultReferenceResolver
         public KeyVaultSecretResolver(
             KeyVaultReferenceResolverOptions? options = null,
             ILogger? logger = null)
-            : this(options, logger, null)
+            : this(options, logger, applyEnvironmentConvention: false)
         {
         }
 
         /// <summary>
-        /// Creates a resolver that, absent an explicit credential or <c>ClientCertificate</c>,
-        /// authenticates with a certificate the configuration named by convention.
+        /// Creates a resolver. With <paramref name="applyEnvironmentConvention"/>, and absent an
+        /// explicit credential or <c>ClientCertificate</c>, a store certificate that names
+        /// <c>AZURE_CLIENT_ID</c> is used if there is one. The extension methods ask for this; a
+        /// resolver constructed directly never reads the environment for an identity.
         /// </summary>
         internal KeyVaultSecretResolver(
             KeyVaultReferenceResolverOptions? options,
             ILogger? logger,
-            CertificateStoreCredentialOptions? conventionCertificate)
+            bool applyEnvironmentConvention)
         {
             _options = options ?? new KeyVaultReferenceResolverOptions();
             _options.Validate();
-            // Precedence: an explicit Credential, then a store certificate, then the default chain.
+            _logger = logger ?? NullLogger.Instance;
+
+            // Precedence: an explicit Credential, then ClientCertificate, then the environment
+            // convention, then the default chain. A store certificate is validated here, at
+            // construction, so a missing, key-less or expired certificate fails at startup with a
+            // clear message instead of on the first vault call.
             if (_options.Credential != null)
             {
                 _credential = _options.Credential;
             }
-            else if ((_options.ClientCertificate ?? conventionCertificate) is CertificateStoreCredentialOptions certificateSettings)
+            else if (_options.ClientCertificate != null)
             {
-                // Validated here, at construction, so a missing, key-less or expired certificate
-                // fails at startup with a clear message instead of on the first vault call.
-                _clientCertificate = CertificateStoreLoader.Load(certificateSettings);
-                try
-                {
-                    _credential = CertificateStoreLoader.CreateCredential(certificateSettings, _clientCertificate, _options);
-                }
-                catch
-                {
-                    _clientCertificate.Dispose();
-                    throw;
-                }
+                _certificateCredential = CertificateStoreCredential.Create(
+                    _options.ClientCertificate, BuildClientCertificateCredentialOptions(_options));
+                _credential = _certificateCredential;
             }
             else
             {
-                _credential = CreateDefaultCredential(_options);
+                // ExcludeEnvironmentCredential opts out of taking an identity from the process
+                // environment, and that covers the convention too.
+                if (applyEnvironmentConvention && !_options.ExcludeEnvironmentCredential)
+                {
+                    _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
+                        BuildClientCertificateCredentialOptions(_options));
+                    if (_certificateCredential != null)
+                        Log.ClientCertificateFromEnvironment(_logger);
+                }
+
+                _credential = (TokenCredential?)_certificateCredential ?? CreateDefaultCredential(_options);
             }
-            _logger = logger ?? NullLogger.Instance;
         }
+
+        /// <summary>The credential in use, for tests that assert on which one was chosen.</summary>
+        internal TokenCredential Credential => _credential;
 
         /// <inheritdoc />
         public Task<string> ResolveSecretAsync(string secretUri, CancellationToken cancellationToken = default)
@@ -241,7 +251,7 @@ namespace KeyVaultReferenceResolver
             {
                 _secretCache.Clear();
                 _secretClients.Clear();
-                _clientCertificate?.Dispose();
+                _certificateCredential?.Dispose();
             }
 
             _disposed = true;
@@ -366,6 +376,41 @@ namespace KeyVaultReferenceResolver
                 default:
                     return $"Failed to read {masked} from Key Vault (HTTP {ex.Status}).";
             }
+        }
+
+        /// <summary>
+        /// Builds the options of the store-certificate credential from the resolver options, so that
+        /// authority host, additionally allowed tenants and retry behaviour mean the same for it as for
+        /// the default chain. Token acquisition runs inside the per-secret
+        /// <see cref="KeyVaultReferenceResolverOptions.Timeout"/> and the
+        /// <see cref="KeyVaultReferenceResolverOptions.OverallTimeout"/>, so an unreachable Entra ID or
+        /// vault surfaces as a timeout rather than a hang. Internal so it can be asserted on directly.
+        /// </summary>
+        internal static ClientCertificateCredentialOptions BuildClientCertificateCredentialOptions(
+            KeyVaultReferenceResolverOptions options)
+        {
+            var credentialOptions = new ClientCertificateCredentialOptions();
+
+            if (options.AuthorityHost != null)
+                credentialOptions.AuthorityHost = options.AuthorityHost;
+
+            if (options.AdditionallyAllowedTenants != null)
+            {
+                foreach (var tenant in options.AdditionallyAllowedTenants)
+                    credentialOptions.AdditionallyAllowedTenants.Add(tenant);
+            }
+
+            var retry = options.ClientOptions?.Retry;
+            if (retry != null)
+            {
+                credentialOptions.Retry.MaxRetries = retry.MaxRetries;
+                credentialOptions.Retry.Delay = retry.Delay;
+                credentialOptions.Retry.MaxDelay = retry.MaxDelay;
+                credentialOptions.Retry.Mode = retry.Mode;
+                credentialOptions.Retry.NetworkTimeout = retry.NetworkTimeout;
+            }
+
+            return credentialOptions;
         }
 
         private static DefaultAzureCredential CreateDefaultCredential(KeyVaultReferenceResolverOptions options)

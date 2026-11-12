@@ -2,11 +2,11 @@ using System;
 using System.Security.Cryptography.X509Certificates;
 using X509StoreLocation = System.Security.Cryptography.X509Certificates.StoreLocation;
 
-namespace KeyVaultReferenceResolver
+namespace CertificateStoreCredentials
 {
     /// <summary>
     /// Identifies a client certificate in the certificate store that an Entra service principal
-    /// authenticates with. Set on <see cref="KeyVaultReferenceResolverOptions.ClientCertificate"/>.
+    /// authenticates with. Pass it to <see cref="CertificateStoreCredential.Create(CertificateStoreCredentialOptions)"/>.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -23,7 +23,7 @@ namespace KeyVaultReferenceResolver
     /// <para>
     /// Unlike the environment convention, which silently does nothing when no certificate matches,
     /// naming the certificate here means it is required: a missing, key-less or expired certificate
-    /// throws <see cref="InvalidOperationException"/> when the resolver is created.
+    /// throws <see cref="InvalidOperationException"/> when the credential is created.
     /// </para>
     /// </remarks>
     public sealed class CertificateStoreCredentialOptions

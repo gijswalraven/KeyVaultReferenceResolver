@@ -28,6 +28,8 @@ KeyVaultReferenceResolver is a .NET library that resolves Azure Key Vault secret
 
 **Target Framework:** .NET Standard 2.0 (compatible with .NET Framework 4.6.1+ and .NET Core 2.0+)
 
+Three packages ship from the solution (`KeyVaultReferenceResolver.slnx`): `CertificateStoreCredential` (a `TokenCredential` for a service principal with a certificate from the Windows certificate store; knows nothing about Key Vault; depends only on Azure.Identity), `KeyVaultReferenceResolver` (depends on it) and `KeyVaultReferenceResolver.HashiCorp` (depends on the core). `CertificateStoreCredential` has its own version; the other two move in lockstep.
+
 ## Architecture
 
 The library follows a simple provider pattern:

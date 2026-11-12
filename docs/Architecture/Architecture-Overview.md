@@ -75,7 +75,7 @@ Five overloads exist, differing only in how options and the resolver are supplie
 
 ### KeyVaultSecretResolver
 
-The Azure implementation, in [KeyVaultSecretResolver.cs](../../src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs). It parses and validates secret URIs, constructs and caches one `SecretClient` per vault host, builds a hardened `DefaultAzureCredential` (or a store-certificate `ClientCertificateCredential`, see `CertificateStoreLoader`) when the caller has not supplied one, enforces the per-secret timeout, checks the secret's validity period, caches the value, and maps `RequestFailedException` statuses onto messages an operator can act on. Detail in [Azure-Key-Vault-Provider.md](../Features/Azure-Key-Vault-Provider.md).
+The Azure implementation, in [KeyVaultSecretResolver.cs](../../src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs). It parses and validates secret URIs, constructs and caches one `SecretClient` per vault host, builds a hardened `DefaultAzureCredential` (or a store-certificate `CertificateStoreCredential`, from the separate CertificateStoreCredential package) when the caller has not supplied one, enforces the per-secret timeout, checks the secret's validity period, caches the value, and maps `RequestFailedException` statuses onto messages an operator can act on. Detail in [Azure-Key-Vault-Provider.md](../Features/Azure-Key-Vault-Provider.md).
 
 ### HashiCorpVaultSecretResolver
 
@@ -135,4 +135,4 @@ Covered in full in [Security-Model.md](../Architecture/Security-Model.md). The h
 - Both resolvers implement `IDisposable`. Disposing clears cached secrets and clients — the strings cannot be zeroed, but dropping the references lets the GC reclaim them instead of keeping them reachable in every crash dump for the process lifetime.
 - Resolution failures surface out of `IConfigurationBuilder.Build()`, which in ASP.NET Core means the host fails to start. That is the intended behaviour for a missing credential.
 - Every log record carries a stable `EventId`; see [Logging-And-Monitoring.md](../Operations/Logging-And-Monitoring.md) for the catalogue and suggested alerts.
-- The two packages are versioned in lockstep and released together from a tag-verified GitHub Actions workflow; see [Release-And-Publishing.md](../Development/Release-And-Publishing.md).
+- Three packages are released together from a tag-verified GitHub Actions workflow: `KeyVaultReferenceResolver` and `KeyVaultReferenceResolver.HashiCorp` are versioned in lockstep, and `CertificateStoreCredential` (which `KeyVaultReferenceResolver` depends on, and which knows nothing about Key Vault) has a version of its own and is published first; see [Release-And-Publishing.md](../Development/Release-And-Publishing.md).

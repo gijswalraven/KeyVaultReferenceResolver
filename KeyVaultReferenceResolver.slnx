@@ -1,0 +1,18 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/CertificateStoreCredential/CertificateStoreCredential.csproj" />
+    <Project Path="src/KeyVaultReferenceResolver/KeyVaultReferenceResolver.csproj" />
+    <Project Path="src/KeyVaultReferenceResolver.HashiCorp/KeyVaultReferenceResolver.HashiCorp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CertificateStoreCredential.Tests/CertificateStoreCredential.Tests.csproj" />
+    <Project Path="tests/KeyVaultReferenceResolver.HashiCorp.Tests/KeyVaultReferenceResolver.HashiCorp.Tests.csproj" />
+    <Project Path="tests/KeyVaultReferenceResolver.TestSupport/KeyVaultReferenceResolver.TestSupport.csproj" />
+    <Project Path="tests/KeyVaultReferenceResolver.Tests/KeyVaultReferenceResolver.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -78,7 +78,10 @@ toolchain quirk, not a broken suite.
 
 Maintainers only:
 
-1. Bump `<Version>` in both `src/**/*.csproj` and add the CHANGELOG section.
+1. Bump `<Version>` in `src/KeyVaultReferenceResolver` and `src/KeyVaultReferenceResolver.HashiCorp`
+   (they move in lockstep) and add the CHANGELOG section. `src/CertificateStoreCredential` has a version
+   of its own: bump it only when that package changed, and raise the dependency range in
+   `KeyVaultReferenceResolver.csproj` if the new version is a new major.
 2. Tag `vX.Y.Z` and publish a GitHub release. The release workflow verifies that the tag
    matches the csproj version and fails before publishing if it does not.
 3. The workflow packs, attests build provenance, generates and attaches an SBOM, and

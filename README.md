@@ -215,6 +215,12 @@ The certificate is checked when the resolver is created, not on the first vault 
 certificate is missing, has no accessible private key, has expired (with the end date), or is not
 valid yet (with the start date, allowing 5 minutes of clock skew).
 
+The certificate logic is the separate **CertificateStoreCredential** package, which this package depends on
+(types in the `CertificateStoreCredentials` namespace, so add `using CertificateStoreCredentials;` for
+`CertificateStoreCredentialOptions`). It can be used on its own, without this package, to get tokens for
+other Azure services (for example Azure SQL); see
+[its README](src/CertificateStoreCredential/README.md) and the HOWTO.
+
 Step-by-step setup, including creating the certificate: see
 [Client-Certificate-Authentication-HOWTO.md](docs/Deployment/Client-Certificate-Authentication-HOWTO.md).
 

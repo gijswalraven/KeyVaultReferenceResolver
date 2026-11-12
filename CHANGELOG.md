@@ -12,22 +12,40 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ### Added
 
-- `KeyVaultReferenceResolverOptions.ClientCertificate` (`CertificateStoreCredentialOptions`):
-  authenticate as an Entra service principal with a client certificate from the
-  certificate store, found by thumbprint, with a non-exportable private key if
-  need be. Additive; without it nothing changes. `Credential` still takes
-  precedence. The certificate is validated when the resolver is created: a
-  missing, key-less, expired or not-yet-valid certificate throws `InvalidOperationException`.
-  The thumbprint is optional: `new CertificateStoreCredentialOptions(tenantId, clientId)` finds the
-  certificate whose subject or friendly name contains the client ID (optionally in one
-  `StoreLocation` only), and fails when there is none.
+- **New package `CertificateStoreCredential` 1.0.0**, which `KeyVaultReferenceResolver` now depends on
+  (published first, then `KeyVaultReferenceResolver`, then `KeyVaultReferenceResolver.HashiCorp`). It is a
+  `TokenCredential` for an Entra service principal that authenticates with a client certificate from the
+  Windows certificate store, with a non-exportable private key if need be. It knows nothing about Key Vault,
+  configuration or logging and depends only on Azure.Identity, so an application can use it on its own for
+  other tokens, for example Azure SQL (`https://database.windows.net/.default`), without referencing the
+  resolver. It has its own version and its own README. Types are in the `CertificateStoreCredentials`
+  namespace:
+  - `CertificateStoreCredential.TryCreateFromEnvironment()`: the convention below; `null` when it does not apply.
+  - `CertificateStoreCredential.Create(CertificateStoreCredentialOptions)`: the certificate is required.
+  - It owns the loaded certificate and wraps one `ClientCertificateCredential` (no cache of its own);
+    `Dispose()` is idempotent and releases the certificate.
+  - `CertificateStoreCredentialOptions`: tenant, client, and optionally a thumbprint and a `StoreLocation`.
+    Without a thumbprint, the certificate whose subject or friendly name contains the client ID is used.
+  - The certificate is validated when the credential is created: a missing, key-less, expired or
+    not-yet-valid certificate throws `InvalidOperationException`.
+- `KeyVaultReferenceResolverOptions.ClientCertificate` (a `CertificateStoreCredentialOptions`): authenticate the
+  resolver with such a certificate. Additive; without it nothing changes. `Credential` still takes precedence.
 - Convention: with `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` set, a certificate in `CurrentUser\My`
   (then `LocalMachine\My`) whose subject or friendly name contains the client ID is used, with no
   code and no thumbprint; the valid one expiring last wins, so renewal needs no change. It applies
   only when such a certificate exists and `Credential`, `ClientCertificate`, `ExcludeEnvironmentCredential`
   and `AZURE_CLIENT_SECRET` / `AZURE_CLIENT_CERTIFICATE_PATH` / `AZURE_FEDERATED_TOKEN_FILE` do not
-  say otherwise. **Behaviour change for anyone who has a certificate whose subject contains their
-  `AZURE_CLIENT_ID`:** it is now used instead of the default credential chain. New log event 1007.
+  say otherwise, and only through the `AddKeyVaultReferenceResolver` extension methods; a
+  `KeyVaultSecretResolver` constructed directly never reads the environment for an identity.
+  **Behaviour change for anyone who has a certificate whose subject contains their
+  `AZURE_CLIENT_ID`:** it is now used instead of the default credential chain. New log event 1007,
+  written by the resolver.
+
+### Changed
+
+- The solution file is now `KeyVaultReferenceResolver.slnx` (the XML solution format) instead of
+  `KeyVaultReferenceResolver.sln`.
+- The release workflow publishes three packages in a fixed order, each after the ones it depends on.
 
 ## [2.0.1]
 

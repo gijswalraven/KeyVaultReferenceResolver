@@ -6,7 +6,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Azure.Identity;
 
-namespace KeyVaultReferenceResolver
+namespace CertificateStoreCredentials
 {
     /// <summary>
     /// Finds and validates the client certificate named by
@@ -225,9 +225,42 @@ namespace KeyVaultReferenceResolver
                         $"the {Describe(settings)} could not be opened ({ex.GetType().Name}).", ex);
                 }
 
-                var found = store.Certificates.Find(X509FindType.FindByThumbprint, settings.Thumbprint!, false);
-                return Select(found, settings, DateTimeOffset.UtcNow);
+                return SelectByThumbprint(store.Certificates, settings, DateTimeOffset.UtcNow);
             }
+        }
+
+        /// <summary>
+        /// The same as <see cref="Load"/> with the store contents supplied, so the whole path from
+        /// settings to validated certificate can be tested with in-memory certificates.
+        /// </summary>
+        internal static X509Certificate2 LoadFrom(
+            CertificateStoreCredentialOptions requested,
+            Func<StoreLocation, X509Certificate2Collection> candidatesFor,
+            DateTimeOffset now)
+        {
+            var settings = Resolve(requested, candidatesFor, now);
+            return SelectByThumbprint(candidatesFor(settings.StoreLocation!.Value), settings, now);
+        }
+
+        /// <summary>
+        /// Keeps the certificates carrying the settings' thumbprint, disposes the rest, and selects the
+        /// usable one. The single implementation behind both <see cref="Load"/> and <see cref="LoadFrom"/>.
+        /// </summary>
+        private static X509Certificate2 SelectByThumbprint(
+            X509Certificate2Collection all,
+            CertificateStoreCredentialOptions settings,
+            DateTimeOffset now)
+        {
+            var matching = new System.Collections.Generic.List<X509Certificate2>();
+            foreach (var certificate in all.Cast<X509Certificate2>())
+            {
+                if (string.Equals(certificate.Thumbprint, settings.Thumbprint, StringComparison.OrdinalIgnoreCase))
+                    matching.Add(certificate);
+                else
+                    certificate.Dispose();
+            }
+
+            return Select(new X509Certificate2Collection(matching.ToArray()), settings, now);
         }
 
         /// <summary>
@@ -307,41 +340,23 @@ namespace KeyVaultReferenceResolver
         /// <summary>
         /// Builds the credential. The certificate must outlive the credential.
         /// </summary>
-        /// <remarks>
-        /// Authority host, additionally allowed tenants and retry behaviour follow the resolver
-        /// options, so a retry setting means the same for this credential as for the default chain.
-        /// Token acquisition runs inside the per-secret
-        /// <see cref="KeyVaultReferenceResolverOptions.Timeout"/> and the
-        /// <see cref="KeyVaultReferenceResolverOptions.OverallTimeout"/>, so an unreachable
-        /// Entra ID or vault surfaces as a timeout rather than a hang.
-        /// </remarks>
+        /// <param name="settings">The service principal.</param>
+        /// <param name="certificate">The validated certificate.</param>
+        /// <param name="credentialOptions">
+        /// Authority host, additionally allowed tenants and retry behaviour of the wrapped credential,
+        /// or <c>null</c> for the Azure Identity defaults. Token acquisition therefore follows whatever
+        /// timeouts and retries the caller wraps around it.
+        /// </param>
         internal static ClientCertificateCredential CreateCredential(
             CertificateStoreCredentialOptions settings,
             X509Certificate2 certificate,
-            KeyVaultReferenceResolverOptions options)
+            ClientCertificateCredentialOptions? credentialOptions)
         {
-            var credentialOptions = new ClientCertificateCredentialOptions();
-
-            if (options.AuthorityHost != null)
-                credentialOptions.AuthorityHost = options.AuthorityHost;
-
-            if (options.AdditionallyAllowedTenants != null)
-            {
-                foreach (var tenant in options.AdditionallyAllowedTenants)
-                    credentialOptions.AdditionallyAllowedTenants.Add(tenant);
-            }
-
-            var retry = options.ClientOptions?.Retry;
-            if (retry != null)
-            {
-                credentialOptions.Retry.MaxRetries = retry.MaxRetries;
-                credentialOptions.Retry.Delay = retry.Delay;
-                credentialOptions.Retry.MaxDelay = retry.MaxDelay;
-                credentialOptions.Retry.Mode = retry.Mode;
-                credentialOptions.Retry.NetworkTimeout = retry.NetworkTimeout;
-            }
-
-            return new ClientCertificateCredential(settings.TenantId, settings.ClientId, certificate, credentialOptions);
+            return new ClientCertificateCredential(
+                settings.TenantId,
+                settings.ClientId,
+                certificate,
+                credentialOptions ?? new ClientCertificateCredentialOptions());
         }
 
         private static string Describe(CertificateStoreCredentialOptions settings)

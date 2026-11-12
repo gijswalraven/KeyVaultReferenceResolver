@@ -34,7 +34,7 @@ The resolver signs a token request with the private key (the key stays in the st
 - A Windows VM and the account the application runs as (referred to below as the **run-as account**).
 - Permission to create an app registration in the tenant, and to assign a role on the vault.
 - The Azure CLI (`az`) for the registration steps, or the Azure portal.
-- A package version of KeyVaultReferenceResolver that includes client certificate support.
+- The **CertificateStoreCredential** package. `KeyVaultReferenceResolver` depends on it, so referencing the resolver is enough for the resolver scenarios; an application that only needs a token for something else references `CertificateStoreCredential` alone, without the resolver. Its [README](../../src/CertificateStoreCredential/README.md) is the self-contained reference for the credential (convention, explicit form, creating the certificate, rotation, error messages). The types are in the `CertificateStoreCredentials` namespace.
 
 Fill in these values once; the commands below use them:
 
@@ -186,6 +186,8 @@ A scheduled task inherits the environment of its account. After changing user or
 The convention treats "no matching certificate" as "this feature is not in use", because `AZURE_CLIENT_ID` is also set by other mechanisms such as user-assigned managed identities. If the application must fail loudly when the certificate is absent, name it explicitly:
 
 ```csharp
+using CertificateStoreCredentials;   // CertificateStoreCredentialOptions
+
 builder.Configuration.AddKeyVaultReferenceResolver(o =>
 {
     // Found by client ID, like the convention, but required: no match fails at setup.
@@ -208,6 +210,62 @@ Read the values from ordinary configuration (never from a Key Vault reference, w
 ```powershell
 schtasks /Run /TN "MyConsumer"
 ```
+
+## Using the same credential outside the resolver (for example for Azure SQL)
+
+The certificate logic lives in its own package, **CertificateStoreCredential**, which knows nothing about Key Vault. Its public class `CertificateStoreCredential` is a `TokenCredential` that owns the loaded certificate, so an application can get a token for anything that accepts an Entra token without referencing KeyVaultReferenceResolver, and without a second certificate lookup. Neither package depends on any SQL client library; the SQL part below is code in your own project.
+
+```powershell
+dotnet add package CertificateStoreCredential
+```
+
+```csharp
+using Azure.Core;
+using CertificateStoreCredentials;
+
+// Convention: AZURE_TENANT_ID + AZURE_CLIENT_ID, certificate named after the client ID.
+// Returns null when the convention does not apply; throws InvalidOperationException when a
+// certificate names the client but is expired, not yet valid or has no accessible private key.
+using CertificateStoreCredential? credential = CertificateStoreCredential.TryCreateFromEnvironment();
+
+// Or explicit, certificate required (same options as ClientCertificate):
+// using var credential = CertificateStoreCredential.Create(new CertificateStoreCredentialOptions(tenantId, clientId));
+
+AccessToken token = await credential!.GetTokenAsync(
+    new TokenRequestContext(new[] { "https://database.windows.net/.default" }),
+    cancellationToken);
+// token.Token is the bearer token, token.ExpiresOn its expiry.
+```
+
+Things to know:
+
+- **Create it once and keep it.** The wrapped `ClientCertificateCredential` caches tokens and renews them near expiry; a new instance per call discards that cache. Register one instance as a singleton and dispose it at shutdown. `Dispose()` releases the loaded certificate, may be called more than once, and makes later token requests throw `ObjectDisposedException`. `Thumbprint` tells you which certificate was picked, for logging.
+- **Same rules as the resolver.** The same lookup, validation and messages apply, at creation, not on the first token request, because the resolver uses this very class. `TryCreateFromEnvironment()` returns `null` exactly where `AddKeyVaultReferenceResolver` would leave the default chain in charge: no variables, no matching certificate, or `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE` set.
+- **No fallback is built in, and no logging.** Decide what `null` means for your application: fail, or fall back to another credential, for example `TokenCredential credential = (TokenCredential?)CertificateStoreCredential.TryCreateFromEnvironment() ?? new DefaultAzureCredential();` (then dispose only if it is the certificate credential). The package has no logging, so event 1007 is written by the resolver only.
+- **Authority host and retry settings** are the defaults of `ClientCertificateCredential` (including `AZURE_AUTHORITY_HOST`). Both factories have an overload that takes a `ClientCertificateCredentialOptions`; the resolver uses it to pass on its own `AuthorityHost`, `AdditionallyAllowedTenants` and retry settings.
+
+A sketch of an Azure SQL authentication provider that uses it (in your project, with your `Microsoft.Data.SqlClient` version; not compiled as part of either package):
+
+```csharp
+public sealed class CertificateSqlAuthenticationProvider : SqlAuthenticationProvider
+{
+    private static readonly string[] Scope = { "https://database.windows.net/.default" };
+    private readonly TokenCredential _credential;
+
+    public CertificateSqlAuthenticationProvider(TokenCredential credential) => _credential = credential;
+
+    public override async Task<SqlAuthenticationToken> AcquireTokenAsync(SqlAuthenticationParameters parameters)
+    {
+        var token = await _credential.GetTokenAsync(new TokenRequestContext(Scope), CancellationToken.None);
+        return new SqlAuthenticationToken(token.Token, token.ExpiresOn);
+    }
+
+    public override bool IsSupported(SqlAuthenticationMethod authenticationMethod) =>
+        authenticationMethod == SqlAuthenticationMethod.ActiveDirectoryServicePrincipal;
+}
+```
+
+The service principal also needs a database user for that identity (`CREATE USER [<app name>] FROM EXTERNAL PROVIDER`) and the roles it requires; that is database administration, outside this guide.
 
 ## Step 6: Rotate the certificate
 

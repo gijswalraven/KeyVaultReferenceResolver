@@ -43,22 +43,25 @@ public KeyVaultSecretResolver(
 {
     _options = options ?? new KeyVaultReferenceResolverOptions();
     _options.Validate();
-    // Precedence: Credential, then a store certificate (options.ClientCertificate, or one the
-    // environment convention found), then the default chain.
+    _logger = logger ?? NullLogger.Instance;
+    // Precedence: Credential, then ClientCertificate, then the environment convention (only when
+    // the extension methods ask for it), then the default chain.
     if (_options.Credential != null)
         _credential = _options.Credential;
-    else if ((_options.ClientCertificate ?? conventionCertificate) is { } settings)
-    {
-        _clientCertificate = CertificateStoreLoader.Load(settings);   // validates; throws if unusable
-        _credential = CertificateStoreLoader.CreateCredential(settings, _clientCertificate, _options);
-    }
+    else if (_options.ClientCertificate != null)
+        _credential = _certificateCredential = CertificateStoreCredential.Create(
+            _options.ClientCertificate, BuildClientCertificateCredentialOptions(_options));   // validates; throws if unusable
     else
-        _credential = CreateDefaultCredential(_options);
-    _logger = logger ?? NullLogger.Instance;
+    {
+        if (applyEnvironmentConvention && !_options.ExcludeEnvironmentCredential)
+            _certificateCredential = CertificateStoreCredential.TryCreateFromEnvironment(
+                BuildClientCertificateCredentialOptions(_options));
+        _credential = (TokenCredential?)_certificateCredential ?? CreateDefaultCredential(_options);
+    }
 }
 ```
 
-The public constructor delegates to an internal one that also receives the certificate the environment convention found, if any. When a store certificate is selected, `CertificateStoreLoader.Load` finds and validates it (missing, no private key, expired, not yet valid all throw `InvalidOperationException`) and the resolver keeps the `X509Certificate2` for the credential's lifetime. See [Vault-Authentication-Methods.md](Vault-Authentication-Methods.md).
+The public constructor delegates to an internal one with `applyEnvironmentConvention` off; the extension methods turn it on, so a resolver constructed directly never reads the environment for an identity. When a store certificate is selected, the `CertificateStoreCredential` package finds and validates it (missing, no private key, expired, not yet valid all throw `InvalidOperationException`) and the credential owns the `X509Certificate2`; the resolver keeps the credential and disposes it. `BuildClientCertificateCredentialOptions` carries `AuthorityHost`, `AdditionallyAllowedTenants` and the retry settings of `ClientOptions` into the wrapped `ClientCertificateCredential`. See [Vault-Authentication-Methods.md](Vault-Authentication-Methods.md).
 
 Both parameters are optional, so `new KeyVaultSecretResolver()` is valid and gives defaults throughout. `Validate()` runs immediately, so a negative `Timeout` or a `MaxConcurrency` of zero fails at construction with an `ArgumentOutOfRangeException` naming the property, rather than at the first read.
 
@@ -247,9 +250,9 @@ _expiresAt = ttl == System.Threading.Timeout.InfiniteTimeSpan
 
 `IsExpired` compares against `DateTimeOffset.UtcNow`. A struct rather than a class so entries are stored inline in the `ConcurrentDictionary` buckets with no per-entry allocation.
 
-### CertificateStoreLoader
+### CertificateStoreCredential (separate package)
 
-Internal. Finds the certificate (by thumbprint, or by the client ID in its subject or friendly name), validates it, discovers it from `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` for the environment convention, and builds the `ClientCertificateCredential`. Selection is a pure function of the candidate certificates, so the rules are tested with in-memory certificates and no store access.
+Not part of this package: the resolver depends on the `CertificateStoreCredential` package, which finds the certificate (by thumbprint, or by the client ID in its subject or friendly name), validates it, discovers it from `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` for the environment convention, and wraps one `ClientCertificateCredential`. The package knows nothing about Key Vault, so any application can use the same credential for other tokens such as Azure SQL. See [Client-Certificate-Authentication-HOWTO.md](../Deployment/Client-Certificate-Authentication-HOWTO.md).
 
 ### CreateDefaultCredential
 

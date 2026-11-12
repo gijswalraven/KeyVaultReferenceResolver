@@ -36,6 +36,8 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           tag="$RELEASE_TAG"
+          # The tag names the KeyVaultReferenceResolver release. CertificateStoreCredential has its own
+          # version and is not tagged separately; it is published first, see the publish job.
           csproj="src/KeyVaultReferenceResolver/KeyVaultReferenceResolver.csproj"
           version="$(grep -oPm1 '(?<=<Version>)[^<]+' "$csproj")"
           if [ -z "$version" ]; then
@@ -67,6 +69,22 @@ jobs:
       - name: Pack
         run: dotnet pack --no-build -c Release -o ./artifacts
 
+      # Three packages are released together. KeyVaultReferenceResolver depends on
+      # CertificateStoreCredential, which is versioned on its own, so a release that is missing
+      # it would publish a package whose dependency does not exist on nuget.org.
+      - name: Verify the release contains every package
+        run: |
+          set -euo pipefail
+          for id in CertificateStoreCredential KeyVaultReferenceResolver KeyVaultReferenceResolver.HashiCorp; do
+            files=(./artifacts/"$id".[0-9]*.nupkg)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "::error::Expected exactly one package for $id in ./artifacts"
+              ls ./artifacts
+              exit 1
+            fi
+            echo "Found ${files[0]}"
+          done
+
       # An SBOM lets a consumer enumerate the transitive closure - Azure.Identity, VaultSharp
       # and everything under them - without restoring the package themselves.
       - name: Generate SBOM
@@ -75,7 +93,7 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           dotnet tool restore
-          dotnet dotnet-CycloneDX KeyVaultReferenceResolver.sln \
+          dotnet dotnet-CycloneDX KeyVaultReferenceResolver.slnx \
             --output ./sbom \
             --filename KeyVaultReferenceResolver-sbom.cdx.json \
             --output-format Json \
@@ -194,14 +212,37 @@ jobs:
           # listed owner of the packages -- so it is not a secret.
           user: GijsWalraven
 
+      # Fixed order, each package after the ones it depends on: CertificateStoreCredential, then
+      # KeyVaultReferenceResolver (which depends on it), then KeyVaultReferenceResolver.HashiCorp
+      # (which depends on KeyVaultReferenceResolver). A glob would push in file-name order and could
+      # publish a package before its dependency. --skip-duplicate makes a release that does not bump
+      # CertificateStoreCredential skip it instead of failing.
       - name: Publish to NuGet.org
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: |
+          set -euo pipefail
+          for id in CertificateStoreCredential KeyVaultReferenceResolver KeyVaultReferenceResolver.HashiCorp; do
+            files=(./artifacts/"$id".[0-9]*.nupkg)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "::error::Expected exactly one package for $id in ./artifacts"
+              exit 1
+            fi
+            dotnet nuget push "${files[0]}" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
 
       - name: Publish to GitHub Packages
         continue-on-error: true
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key "$GITHUB_TOKEN" --source "https://nuget.pkg.github.com/$REPOSITORY_OWNER/index.json" --skip-duplicate
+        run: |
+          set -euo pipefail
+          for id in CertificateStoreCredential KeyVaultReferenceResolver KeyVaultReferenceResolver.HashiCorp; do
+            files=(./artifacts/"$id".[0-9]*.nupkg)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "::error::Expected exactly one package for $id in ./artifacts"
+              exit 1
+            fi
+            dotnet nuget push "${files[0]}" --api-key "$GITHUB_TOKEN" --source "https://nuget.pkg.github.com/$REPOSITORY_OWNER/index.json" --skip-duplicate
+          done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
