@@ -200,6 +200,19 @@
       ],
       "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
       "prompt": "Document the CI, CodeQL and release pipelines, SHA-pinned actions, the vulnerable-dependency gate, the tag/version check, OIDC Trusted Publishing, and the requirement that both package versions move together."
+    },
+    {
+      "name": "Client-Certificate-Authentication-HOWTO",
+      "folder": "Deployment",
+      "description": "Step-by-step: authenticate as a service principal with a non-exportable certificate from the Windows certificate store",
+      "filePatterns": [
+        "src/KeyVaultReferenceResolver/CertificateStoreCredentialOptions.cs",
+        "src/KeyVaultReferenceResolver/CertificateStoreLoader.cs",
+        "src/KeyVaultReferenceResolver/KeyVaultSecretResolver.cs",
+        "README.md"
+      ],
+      "excludePatterns": ["bin/", "obj/", "*.g.cs", "*.designer.cs"],
+      "prompt": "Keep the HOWTO in step with the code: app registration, creating the certificate, the AZURE_TENANT_ID/AZURE_CLIENT_ID convention and its rules, the explicit ClientCertificate form, rotation and troubleshooting messages."
     }
   ]
 }

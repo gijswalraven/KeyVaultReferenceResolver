@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
@@ -18,6 +19,7 @@ namespace KeyVaultReferenceResolver
     public class KeyVaultSecretResolver : ISecretResolver, IDisposable
     {
         private readonly TokenCredential _credential;
+        private readonly X509Certificate2? _clientCertificate;
         private readonly KeyVaultReferenceResolverOptions _options;
         private readonly ILogger _logger;
         private readonly ConcurrentDictionary<string, SecretClient> _secretClients = new ConcurrentDictionary<string, SecretClient>();
@@ -36,10 +38,45 @@ namespace KeyVaultReferenceResolver
         public KeyVaultSecretResolver(
             KeyVaultReferenceResolverOptions? options = null,
             ILogger? logger = null)
+            : this(options, logger, null)
+        {
+        }
+
+        /// <summary>
+        /// Creates a resolver that, absent an explicit credential or <c>ClientCertificate</c>,
+        /// authenticates with a certificate the configuration named by convention.
+        /// </summary>
+        internal KeyVaultSecretResolver(
+            KeyVaultReferenceResolverOptions? options,
+            ILogger? logger,
+            CertificateStoreCredentialOptions? conventionCertificate)
         {
             _options = options ?? new KeyVaultReferenceResolverOptions();
             _options.Validate();
-            _credential = _options.Credential ?? CreateDefaultCredential(_options);
+            // Precedence: an explicit Credential, then a store certificate, then the default chain.
+            if (_options.Credential != null)
+            {
+                _credential = _options.Credential;
+            }
+            else if ((_options.ClientCertificate ?? conventionCertificate) is CertificateStoreCredentialOptions certificateSettings)
+            {
+                // Validated here, at construction, so a missing, key-less or expired certificate
+                // fails at startup with a clear message instead of on the first vault call.
+                _clientCertificate = CertificateStoreLoader.Load(certificateSettings);
+                try
+                {
+                    _credential = CertificateStoreLoader.CreateCredential(certificateSettings, _clientCertificate, _options);
+                }
+                catch
+                {
+                    _clientCertificate.Dispose();
+                    throw;
+                }
+            }
+            else
+            {
+                _credential = CreateDefaultCredential(_options);
+            }
             _logger = logger ?? NullLogger.Instance;
         }
 
@@ -204,6 +241,7 @@ namespace KeyVaultReferenceResolver
             {
                 _secretCache.Clear();
                 _secretClients.Clear();
+                _clientCertificate?.Dispose();
             }
 
             _disposed = true;

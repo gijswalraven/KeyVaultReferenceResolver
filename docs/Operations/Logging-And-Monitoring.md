@@ -106,6 +106,7 @@ The HashiCorp package currently calls `ILogger` extension methods directly with 
 | 1002 | `SecretRead` | Information | `Successfully resolved secret from {VaultUri}` | `VaultUri` |
 | 1003 | `ResolutionFailed` | Error | `Failed to resolve Key Vault reference for '{ConfigKey}'; the value has been set to null` | `ConfigKey`, exception |
 | 1004 | `ResolutionSummary` | Information | `Resolved {Count} of {Total} configuration value(s) containing Key Vault reference(s)` | `Count`, `Total` |
+| 1007 | `ClientCertificateFromEnvironment` | Information | `Authenticating with a store client certificate found for AZURE_CLIENT_ID` | none |
 | 1101 | `SecretExpired` | Warning | `Secret from {VaultUri} expired at {ExpiresOn} and is being used anyway` | `VaultUri`, `ExpiresOn` |
 | 1102 | `SecretExpiringSoon` | Warning | `Secret from {VaultUri} expires at {ExpiresOn}, within the {Threshold} warning threshold` | `VaultUri`, `ExpiresOn`, `Threshold` |
 | 1103 | `SecretNotYetValid` | Warning | `Secret from {VaultUri} is not valid until {NotBefore} but is being used now` | `VaultUri`, `NotBefore` |

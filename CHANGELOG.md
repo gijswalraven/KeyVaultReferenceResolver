@@ -10,6 +10,25 @@ without reading the whole entry. Reporting process: [SECURITY.md](SECURITY.md).
 
 ## [Unreleased]
 
+### Added
+
+- `KeyVaultReferenceResolverOptions.ClientCertificate` (`CertificateStoreCredentialOptions`):
+  authenticate as an Entra service principal with a client certificate from the
+  certificate store, found by thumbprint, with a non-exportable private key if
+  need be. Additive; without it nothing changes. `Credential` still takes
+  precedence. The certificate is validated when the resolver is created: a
+  missing, key-less, expired or not-yet-valid certificate throws `InvalidOperationException`.
+  The thumbprint is optional: `new CertificateStoreCredentialOptions(tenantId, clientId)` finds the
+  certificate whose subject or friendly name contains the client ID (optionally in one
+  `StoreLocation` only), and fails when there is none.
+- Convention: with `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` set, a certificate in `CurrentUser\My`
+  (then `LocalMachine\My`) whose subject or friendly name contains the client ID is used, with no
+  code and no thumbprint; the valid one expiring last wins, so renewal needs no change. It applies
+  only when such a certificate exists and `Credential`, `ClientCertificate`, `ExcludeEnvironmentCredential`
+  and `AZURE_CLIENT_SECRET` / `AZURE_CLIENT_CERTIFICATE_PATH` / `AZURE_FEDERATED_TOKEN_FILE` do not
+  say otherwise. **Behaviour change for anyone who has a certificate whose subject contains their
+  `AZURE_CLIENT_ID`:** it is now used instead of the default credential chain. New log event 1007.
+
 ## [2.0.1]
 
 A single fix, plus the CI changes that were already pending. No API changes.

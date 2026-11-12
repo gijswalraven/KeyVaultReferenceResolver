@@ -36,6 +36,9 @@ namespace KeyVaultReferenceResolver
         /// <summary>Numeric ID of <see cref="UnresolvedReference"/>.</summary>
         public const int UnresolvedReferenceId = 1006;
 
+        /// <summary>Numeric ID of <see cref="ClientCertificateFromEnvironment"/>.</summary>
+        public const int ClientCertificateFromEnvironmentId = 1007;
+
         /// <summary>Numeric ID of <see cref="SecretExpired"/>.</summary>
         public const int SecretExpiredId = 1101;
 
@@ -62,6 +65,12 @@ namespace KeyVaultReferenceResolver
 
         /// <summary>Summary of how many configuration values were resolved. Information.</summary>
         public static readonly EventId ResolutionSummary = new EventId(ResolutionSummaryId, nameof(ResolutionSummary));
+
+        /// <summary>
+        /// A store certificate was found for AZURE_CLIENT_ID, so the resolver authenticates with it
+        /// instead of the default credential chain. Information.
+        /// </summary>
+        public static readonly EventId ClientCertificateFromEnvironment = new EventId(ClientCertificateFromEnvironmentId, nameof(ClientCertificateFromEnvironment));
 
         /// <summary>A secret past its ExpiresOn was used anyway. Warning.</summary>
         public static readonly EventId SecretExpired = new EventId(SecretExpiredId, nameof(SecretExpired));

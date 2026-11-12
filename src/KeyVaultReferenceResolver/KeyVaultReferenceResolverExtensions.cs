@@ -111,7 +111,20 @@ namespace KeyVaultReferenceResolver
             options = options ?? new KeyVaultReferenceResolverOptions();
             logger = logger ?? NullLogger.Instance;
 
-            var resolver = new KeyVaultSecretResolver(options, logger);
+            // Convention: with neither an explicit credential nor ClientCertificate, a store certificate
+            // whose subject or friendly name contains AZURE_CLIENT_ID is used for that service
+            // principal (with AZURE_TENANT_ID). ExcludeEnvironmentCredential opts out of taking an
+            // identity from the process environment, and that covers this too.
+            CertificateStoreCredentialOptions? conventionCertificate = null;
+            if (options.Credential == null && options.ClientCertificate == null && !options.ExcludeEnvironmentCredential)
+            {
+                conventionCertificate = CertificateStoreLoader.FromEnvironment(
+                    Environment.GetEnvironmentVariable, CertificateStoreLoader.ReadStore, DateTimeOffset.UtcNow);
+                if (conventionCertificate != null)
+                    Log.ClientCertificateFromEnvironment(logger);
+            }
+
+            var resolver = new KeyVaultSecretResolver(options, logger, conventionCertificate);
 
             return builder.AddKeyVaultReferenceResolver(resolver, options, logger);
         }

@@ -14,7 +14,9 @@ Both chains share a hazard worth stating up front. A chain that falls back to an
 graph LR
     A["KeyVaultSecretResolver"] --> B{"options.Credential<br/>set?"}
     B -->|"yes"| C["use verbatim<br/>all options ignored"]
-    B -->|"no"| D["CreateDefaultCredential"]
+    B -->|"no"| P{"options.ClientCertificate<br/>set?"}
+    P -->|"yes"| Q["CertificateStoreLoader<br/>ClientCertificateCredential"]
+    P -->|"no"| D["CreateDefaultCredential"]
     D --> E["DefaultAzureCredential<br/>narrowed chain"]
     F["HashiCorpVaultSecretResolver"] --> G{"options.AuthMethod<br/>set?"}
     G -->|"yes"| H["use verbatim"]
@@ -86,7 +88,9 @@ The effective chain, with defaults, is: environment credential → workload iden
 ### Azure: bypassing the chain entirely
 
 ```csharp
-_credential = _options.Credential ?? CreateDefaultCredential(_options);
+// Precedence: Credential, then ClientCertificate, then the default chain.
+_credential = _options.Credential
+    ?? (_options.ClientCertificate != null ? /* store certificate */ : CreateDefaultCredential(_options));
 ```
 
 If `options.Credential` is set, every credential-shaping option above is ignored — silently. That is the documented behaviour and the escape hatch for anything `DefaultAzureCredential` cannot express:
@@ -101,6 +105,21 @@ options.Credential = new ManagedIdentityCredential(clientId: "...");
 // Federated credential from a CI pipeline
 options.Credential = new ClientAssertionCredential(tenantId, clientId, () => GetAssertionAsync());
 ```
+
+### Azure: a client certificate from the certificate store
+
+`EnvironmentCredential` can read a service principal certificate only from a file (`AZURE_CLIENT_CERTIFICATE_PATH`), which rules out a certificate with a non-exportable private key. For that case, set `options.ClientCertificate`:
+
+```csharp
+options.ClientCertificate = new CertificateStoreCredentialOptions(tenantId, clientId, thumbprint);
+// or, without a thumbprint, the certificate whose subject/friendly name contains the client ID:
+options.ClientCertificate = new CertificateStoreCredentialOptions(tenantId, clientId);
+// optional fourth argument: StoreLocation.LocalMachine (default CurrentUser)
+```
+
+No thumbprint or code is needed when the certificate is named after the client ID: if neither `Credential` nor `ClientCertificate` is set, `ExcludeEnvironmentCredential` is `false`, `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are set and none of `AZURE_CLIENT_SECRET`, `AZURE_CLIENT_CERTIFICATE_PATH` or `AZURE_FEDERATED_TOKEN_FILE` is, `CertificateStoreLoader.FromEnvironment` looks in `CurrentUser\My` and then `LocalMachine\My` for a certificate whose subject or friendly name contains the client ID. A valid certificate with a private key is preferred, then the one expiring last. With no match nothing changes (`AZURE_CLIENT_ID` is also used by user-assigned managed identities); a match that is unusable fails with the specific reason. The convention is logged as event 1007.
+
+The certificate is looked up by thumbprint in the `My` store. The thumbprint is normalised (whitespace, `:`, `-` and invisible characters such as the U+200E that the Certificates snap-in adds are removed; upper-cased). `CertificateStoreLoader` validates it in the resolver's constructor, so a certificate that is missing, has no accessible private key, has expired, or is not valid yet throws `InvalidOperationException` at startup, naming the thumbprint, store and process user (and the end or start date when expired or not yet valid), never key material. The credential is a `ClientCertificateCredential`; `AuthorityHost`, `AdditionallyAllowedTenants` and the retry settings of `ClientOptions` carry over, and token acquisition runs inside `Timeout` and `OverallTimeout`. When it is used, `AllowDeveloperCredentials`, `ExcludeEnvironmentCredential`, `ManagedIdentityClientId` and `TenantId` are ignored, and the resolver disposes its copy of the certificate on `Dispose`.
 
 The silent-ignore behaviour is worth remembering when debugging: if an identity looks wrong and the exclusion options appear correct, check whether a credential was passed explicitly somewhere.
 

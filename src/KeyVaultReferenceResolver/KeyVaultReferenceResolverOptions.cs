@@ -35,6 +35,34 @@ namespace KeyVaultReferenceResolver
         public TokenCredential? Credential { get; set; }
 
         /// <summary>
+        /// Gets or sets a client certificate in the Windows certificate store to authenticate as an
+        /// Entra service principal with. <c>null</c> (the default) leaves credential selection as it was.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Precedence: <see cref="Credential"/>, when set, always wins; then this setting; then the
+        /// default credential chain. When this is used, <see cref="AllowDeveloperCredentials"/>,
+        /// <see cref="ExcludeEnvironmentCredential"/>, <see cref="ManagedIdentityClientId"/> and
+        /// <see cref="TenantId"/> are ignored (the tenant comes from the setting itself);
+        /// <see cref="AuthorityHost"/>, <see cref="AdditionallyAllowedTenants"/> and the retry settings
+        /// of <see cref="ClientOptions"/> still apply.
+        /// </para>
+        /// <para>
+        /// When this is left <c>null</c> and no <see cref="Credential"/> is set, the same certificate
+        /// can be found without code: with <c>AZURE_TENANT_ID</c> and <c>AZURE_CLIENT_ID</c> set, a
+        /// certificate in <c>CurrentUser\My</c> (then <c>LocalMachine\My</c>) whose subject or friendly
+        /// name contains the client ID is used. <see cref="ExcludeEnvironmentCredential"/> switches this off.
+        /// </para>
+        /// <para>
+        /// The certificate is checked when the resolver is created: an <see cref="InvalidOperationException"/>
+        /// is thrown if it is not in the store, has no accessible private key, or has expired.
+        /// The private key may be non-exportable. <c>EnvironmentCredential</c> cannot do this: it
+        /// only reads a certificate from a file.
+        /// </para>
+        /// </remarks>
+        public CertificateStoreCredentialOptions? ClientCertificate { get; set; }
+
+        /// <summary>
         /// Gets or sets the client ID of the user-assigned managed identity to authenticate with.
         /// Required on hosts that have more than one managed identity assigned, where the
         /// default credential cannot pick an identity on its own.

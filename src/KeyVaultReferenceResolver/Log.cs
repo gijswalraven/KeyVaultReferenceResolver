@@ -16,6 +16,12 @@ namespace KeyVaultReferenceResolver
     internal static partial class Log
     {
         [LoggerMessage(
+            EventId = LogEvents.ClientCertificateFromEnvironmentId,
+            Level = LogLevel.Information,
+            Message = "Authenticating with a store client certificate found for AZURE_CLIENT_ID")]
+        public static partial void ClientCertificateFromEnvironment(ILogger logger);
+
+        [LoggerMessage(
             EventId = LogEvents.CacheHitId,
             Level = LogLevel.Debug,
             Message = "Returning cached secret for URI: {SecretUri}")]
